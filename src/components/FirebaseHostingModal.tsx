@@ -47,7 +47,7 @@ export const FirebaseHostingModal: React.FC<FirebaseHostingModalProps> = ({
         </div>
 
         {/* Body */}
-        <div className="p-6 flex flex-col gap-4 max-h-[70vh] overflow-y-auto text-xs text-neutral-300">
+        <div className="p-6 flex flex-col gap-4 max-h-[70vh] overflow-y-auto overscroll-contain touch-pan-y text-xs text-neutral-300">
           <div className="p-3.5 bg-emerald-500/10 border border-emerald-500/30 rounded-xl flex items-start gap-2.5">
             <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
             <div className="leading-relaxed">
@@ -71,11 +71,11 @@ export const FirebaseHostingModal: React.FC<FirebaseHostingModalProps> = ({
               <span className="font-bold text-white text-[11px]">
                 1. Tengeneza faili za toleo la uzalishaji (Production Build):
               </span>
-              <div className="flex items-center justify-between bg-neutral-950 px-3 py-2 rounded-lg font-mono text-[11px] text-amber-300">
-                <code>npm run build</code>
+              <div className="flex items-center justify-between gap-2 bg-neutral-950 px-3 py-2 rounded-lg font-mono text-[11px] text-amber-300 min-w-0">
+                <code className="truncate sm:whitespace-normal">{'npm run build'}</code>
                 <button
                   onClick={() => copyToClipboard('npm run build', 'build')}
-                  className="text-neutral-400 hover:text-white transition-colors"
+                  className="text-neutral-400 hover:text-white transition-colors shrink-0"
                 >
                   {copiedCmd === 'build' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
                 </button>
@@ -90,11 +90,11 @@ export const FirebaseHostingModal: React.FC<FirebaseHostingModalProps> = ({
               <span className="font-bold text-white text-[11px]">
                 2. Ingia kwenye akaunti yako ya Firebase:
               </span>
-              <div className="flex items-center justify-between bg-neutral-950 px-3 py-2 rounded-lg font-mono text-[11px] text-amber-300">
-                <code>npx firebase-tools login</code>
+              <div className="flex items-center justify-between gap-2 bg-neutral-950 px-3 py-2 rounded-lg font-mono text-[11px] text-amber-300 min-w-0">
+                <code className="overflow-x-auto whitespace-nowrap">{'npx firebase-tools login'}</code>
                 <button
                   onClick={() => copyToClipboard('npx firebase-tools login', 'login')}
-                  className="text-neutral-400 hover:text-white transition-colors"
+                  className="text-neutral-400 hover:text-white transition-colors shrink-0"
                 >
                   {copiedCmd === 'login' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
                 </button>
@@ -106,11 +106,11 @@ export const FirebaseHostingModal: React.FC<FirebaseHostingModalProps> = ({
               <span className="font-bold text-white text-[11px]">
                 3. Peleka Hewani kwa amri moja:
               </span>
-              <div className="flex items-center justify-between bg-neutral-950 px-3 py-2 rounded-lg font-mono text-[11px] text-amber-300">
-                <code>npx firebase-tools deploy --only hosting</code>
+              <div className="flex items-center justify-between gap-2 bg-neutral-950 px-3 py-2 rounded-lg font-mono text-[11px] text-amber-300 min-w-0">
+                <code className="overflow-x-auto whitespace-nowrap">{'npx firebase-tools deploy --only hosting'}</code>
                 <button
                   onClick={() => copyToClipboard('npx firebase-tools deploy --only hosting', 'deploy')}
-                  className="text-neutral-400 hover:text-white transition-colors"
+                  className="text-neutral-400 hover:text-white transition-colors shrink-0"
                 >
                   {copiedCmd === 'deploy' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
                 </button>

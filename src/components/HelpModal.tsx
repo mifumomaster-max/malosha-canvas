@@ -23,7 +23,7 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose }) => {
                 Mwongozo wa Kutengeneza Mabango ya Ubora wa Juu
               </h2>
               <p className="text-xs text-neutral-400">
-                Jinsi ya kutumia CanvaPoster Studio kupata bango lenye muonekano wa kiwango cha juu
+                Jinsi ya kutumia Malosha Poster Studio kupata bango lenye muonekano wa kiwango cha juu
               </p>
             </div>
           </div>
@@ -36,7 +36,7 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose }) => {
         </div>
 
         {/* Body */}
-        <div className="p-6 flex flex-col gap-4 max-h-[70vh] overflow-y-auto text-xs text-neutral-300 leading-relaxed">
+        <div className="p-6 flex flex-col gap-4 max-h-[70vh] overflow-y-auto overscroll-contain touch-pan-y text-xs text-neutral-300 leading-relaxed">
           <div className="p-4 bg-neutral-800/60 rounded-xl border border-neutral-700/80 flex flex-col gap-2">
             <h3 className="text-sm font-bold text-amber-400 flex items-center gap-1.5">
               <Layers className="w-4 h-4" />
@@ -79,7 +79,7 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose }) => {
               <Sparkles className="w-4 h-4" />
               <span>3. Njia za Mkato za Kibodi (Keyboard Shortcuts)</span>
             </h3>
-            <div className="grid grid-cols-2 gap-2 font-mono text-[11px]">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 font-mono text-[11px]">
               <div className="p-2 bg-neutral-900 rounded border border-neutral-800">
                 <span className="text-amber-300">Ctrl + Z</span>: Rudisha Nyuma (Undo)
               </div>

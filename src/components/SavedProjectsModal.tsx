@@ -72,9 +72,9 @@ export const SavedProjectsModal: React.FC<SavedProjectsModalProps> = ({
         </div>
 
         {/* Body */}
-        <div className="p-6 flex flex-col gap-4 max-h-[60vh] overflow-y-auto">
+        <div className="p-6 flex flex-col gap-4 max-h-[60vh] overflow-y-auto overscroll-contain touch-pan-y">
           {/* Top Actions */}
-          <div className="flex items-center justify-between gap-3">
+          <div className="flex flex-wrap sm:flex-nowrap items-center justify-between gap-2">
             <button
               onClick={() => {
                 onNewBlankProject();

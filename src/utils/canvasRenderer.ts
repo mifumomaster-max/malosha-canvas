@@ -10,6 +10,8 @@ import {
   QrCodeElement,
   ChartElement
 } from '../types/poster';
+import { SHAPES_100_MAP } from '../data/shapes100';
+import { COLOR_EFFECT_MAP } from '../data/colorEffects';
 
 // Cache for loaded images so re-rendering is instantaneous
 const imageCache = new Map<string, HTMLImageElement>();
@@ -88,7 +90,45 @@ export async function renderPosterToCanvas(
     ctx.restore();
   }
 
-  return canvas;
+  // 3. Whole-poster Color Effect (if active)
+  let outputCanvas = canvas;
+  const effect = project.colorEffect ? COLOR_EFFECT_MAP[project.colorEffect] : undefined;
+  if (effect && effect.id !== 'none' && !transparentBg) {
+    const graded = document.createElement('canvas');
+    graded.width = canvas.width;
+    graded.height = canvas.height;
+    const gctx = graded.getContext('2d');
+    if (gctx) {
+      if (effect.cssFilter) {
+        gctx.filter = effect.cssFilter;
+      }
+      gctx.drawImage(canvas, 0, 0);
+      gctx.filter = 'none';
+
+      if (effect.overlayColor && effect.overlayAlpha) {
+        gctx.save();
+        gctx.globalCompositeOperation = effect.overlayBlend || 'soft-light';
+        gctx.globalAlpha = effect.overlayAlpha;
+        gctx.fillStyle = effect.overlayColor;
+        gctx.fillRect(0, 0, graded.width, graded.height);
+        gctx.restore();
+      }
+      outputCanvas = graded;
+    }
+  }
+
+  // 4. Watermark Overlay (if enabled)
+  if (project.watermark?.enabled && project.watermark.text?.trim()) {
+    const wctx = outputCanvas.getContext('2d');
+    if (wctx) {
+      wctx.save();
+      wctx.scale(scale, scale);
+      drawWatermark(wctx, project);
+      wctx.restore();
+    }
+  }
+
+  return outputCanvas;
 }
 
 function drawBackground(ctx: CanvasRenderingContext2D, project: PosterProject) {
@@ -149,6 +189,12 @@ async function drawElement(ctx: CanvasRenderingContext2D, el: PosterElement) {
   ctx.translate(cx, cy);
   if (el.rotation) {
     ctx.rotate((el.rotation * Math.PI) / 180);
+  }
+  if (el.flipX || el.flipY) {
+    ctx.scale(el.flipX ? -1 : 1, el.flipY ? -1 : 1);
+  }
+  if (el.blendMode && el.blendMode !== 'source-over') {
+    ctx.globalCompositeOperation = el.blendMode;
   }
   ctx.globalAlpha = el.opacity ?? 1;
 
@@ -270,6 +316,26 @@ function drawShape(
     ctx.shadowOffsetY = 4;
   }
 
+  if (el.shapeType === 'frame-border') {
+    const bw = Math.max(4, el.strokeWidth || 8);
+    ctx.strokeStyle = el.fillColor || '#fbbf24';
+    ctx.lineWidth = bw;
+    roundRect(ctx, x + bw / 2, y + bw / 2, Math.max(4, w - bw), Math.max(4, h - bw), el.borderRadius || 12);
+    ctx.stroke();
+    return;
+  }
+
+  if (el.shapeType === 'line') {
+    ctx.strokeStyle = el.fillColor || '#ffffff';
+    ctx.lineWidth = Math.max(2, h);
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(x, y + h / 2);
+    ctx.lineTo(x + w, y + h / 2);
+    ctx.stroke();
+    return;
+  }
+
   ctx.fillStyle = el.fillColor || '#ffffff';
   ctx.beginPath();
 
@@ -288,7 +354,39 @@ function drawShape(
       break;
     }
     case 'star': {
-      drawStarPath(ctx, x + w / 2, y + h / 2, 5, w / 2, w / 4);
+      drawStarPath(ctx, x + w / 2, y + h / 2, 5, Math.min(w, h) / 2, Math.min(w, h) / 4);
+      break;
+    }
+    case 'burst': {
+      drawStarPath(ctx, x + w / 2, y + h / 2, 12, Math.min(w, h) / 2, Math.min(w, h) * 0.36);
+      break;
+    }
+    case 'hexagon': {
+      drawPolygonPath(ctx, x, y, w, h, 6);
+      break;
+    }
+    case 'pentagon': {
+      drawPolygonPath(ctx, x, y, w, h, 5);
+      break;
+    }
+    case 'octagon': {
+      drawPolygonPath(ctx, x, y, w, h, 8);
+      break;
+    }
+    case 'diamond': {
+      ctx.moveTo(x + w / 2, y);
+      ctx.lineTo(x + w, y + h / 2);
+      ctx.lineTo(x + w / 2, y + h);
+      ctx.lineTo(x, y + h / 2);
+      ctx.closePath();
+      break;
+    }
+    case 'pill': {
+      roundRect(ctx, x, y, w, h, Math.min(w, h) / 2);
+      break;
+    }
+    case 'speech-bubble': {
+      drawSpeechBubblePath(ctx, x, y, w, h);
       break;
     }
     case 'heart': {
@@ -299,17 +397,37 @@ function drawShape(
       drawRibbonPath(ctx, x, y, w, h);
       break;
     }
-    case 'line': {
-      ctx.moveTo(x, y + h / 2);
-      ctx.lineTo(x + w, y + h / 2);
-      break;
-    }
     case 'arrow': {
       drawArrowPath(ctx, x, y, w, h);
       break;
     }
-    case 'rectangle':
+    case 'rectangle': {
+      const r = el.borderRadius || 0;
+      roundRect(ctx, x, y, w, h, r);
+      break;
+    }
     default: {
+      const def = SHAPES_100_MAP[el.shapeType];
+      if (def?.pathData && typeof Path2D !== 'undefined') {
+        const rawPath = new Path2D(def.pathData);
+        if (typeof DOMMatrix !== 'undefined') {
+          const scaledPath = new Path2D();
+          scaledPath.addPath(rawPath, new DOMMatrix().translate(x, y).scale(w / 100, h / 100));
+          ctx.fill(scaledPath, 'evenodd');
+          if (el.strokeColor && el.strokeWidth && el.strokeWidth > 0) {
+            ctx.strokeStyle = el.strokeColor;
+            ctx.lineWidth = el.strokeWidth;
+            ctx.stroke(scaledPath);
+          }
+        } else {
+          ctx.save();
+          ctx.translate(x, y);
+          ctx.scale(w / 100, h / 100);
+          ctx.fill(rawPath, 'evenodd');
+          ctx.restore();
+        }
+        return;
+      }
       const r = el.borderRadius || 0;
       roundRect(ctx, x, y, w, h, r);
       break;
@@ -350,14 +468,20 @@ function drawImage(
   }
 
   const filters: string[] = [];
-  if (el.filterBrightness && el.filterBrightness !== 100)
+  if (el.filterBrightness !== undefined && el.filterBrightness !== 100)
     filters.push(`brightness(${el.filterBrightness}%)`);
-  if (el.filterContrast && el.filterContrast !== 100)
+  if (el.filterContrast !== undefined && el.filterContrast !== 100)
     filters.push(`contrast(${el.filterContrast}%)`);
-  if (el.filterSaturation && el.filterSaturation !== 100)
+  if (el.filterSaturation !== undefined && el.filterSaturation !== 100)
     filters.push(`saturate(${el.filterSaturation}%)`);
   if (el.filterGrayscale && el.filterGrayscale > 0)
     filters.push(`grayscale(${el.filterGrayscale}%)`);
+  if (el.filterSepia && el.filterSepia > 0)
+    filters.push(`sepia(${el.filterSepia}%)`);
+  if (el.filterHueRotate && el.filterHueRotate > 0)
+    filters.push(`hue-rotate(${el.filterHueRotate}deg)`);
+  if (el.filterInvert && el.filterInvert > 0)
+    filters.push(`invert(${el.filterInvert}%)`);
   if (el.filterBlur && el.filterBlur > 0) filters.push(`blur(${el.filterBlur}px)`);
 
   if (filters.length > 0) {
@@ -452,8 +576,21 @@ async function drawQrCode(
 }
 
 // -------------------------------------------------------------
-// HIGH RESOLUTION CANVA-STYLE CHARTS & GRAPHS RENDERER
+// HIGH RESOLUTION CANVA-STYLE CHARTS & GRAPHS RENDERER (16 TYPES)
 // -------------------------------------------------------------
+function formatChartVal(el: ChartElement, val: number): string {
+  return `${el.valuePrefix || ''}${val}${el.valueSuffix || ''}`;
+}
+
+function getMutedTextColor(textColor?: string): string {
+  if (!textColor) return '#94a3b8';
+  const low = textColor.toLowerCase();
+  if (low === '#000000' || low === '#0f172a' || low === '#1e293b' || low === '#171717') {
+    return '#475569';
+  }
+  return '#94a3b8';
+}
+
 export function drawChart(
   ctx: CanvasRenderingContext2D,
   el: ChartElement,
@@ -462,10 +599,10 @@ export function drawChart(
   w: number,
   h: number
 ) {
-  // Draw card background if present
-  if (el.backgroundColor) {
+  // Draw card background if present and not transparent
+  if (el.backgroundColor && el.backgroundColor !== 'transparent') {
     ctx.fillStyle = el.backgroundColor;
-    const r = el.borderRadius || 16;
+    const r = el.borderRadius ?? 16;
     roundRect(ctx, x, y, w, h, r);
     ctx.fill();
 
@@ -476,16 +613,19 @@ export function drawChart(
     }
   }
 
+  const primaryText = el.textColor || '#ffffff';
+  const mutedText = getMutedTextColor(primaryText);
+
   // Padding
   const pad = 16;
   const innerX = x + pad;
   let innerY = y + pad;
-  const innerW = w - pad * 2;
-  let innerH = h - pad * 2;
+  const innerW = Math.max(40, w - pad * 2);
+  let innerH = Math.max(40, h - pad * 2);
 
   // Title & Subtitle
   if (el.title) {
-    ctx.fillStyle = el.textColor || '#ffffff';
+    ctx.fillStyle = primaryText;
     ctx.font = '700 15px "Outfit", sans-serif';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
@@ -494,7 +634,7 @@ export function drawChart(
     innerH -= 20;
 
     if (el.subtitle) {
-      ctx.fillStyle = '#94a3b8';
+      ctx.fillStyle = mutedText;
       ctx.font = '500 11px "Plus Jakarta Sans", sans-serif';
       ctx.fillText(el.subtitle, innerX, innerY);
       innerY += 16;
@@ -508,23 +648,72 @@ export function drawChart(
 
   switch (el.chartType) {
     case 'bar':
-      drawBarChart(ctx, el, innerX, innerY, innerW, innerH, palette);
+      drawBarChart(ctx, el, innerX, innerY, innerW, innerH, palette, primaryText, mutedText);
+      break;
+    case 'horizontal-bar':
+      drawHorizontalBarChart(ctx, el, innerX, innerY, innerW, innerH, palette, primaryText, mutedText);
+      break;
+    case 'stacked-bar':
+      drawStackedBarChart(ctx, el, innerX, innerY, innerW, innerH, palette, primaryText, mutedText);
       break;
     case 'pie':
-      drawPieOrDonut(ctx, el, innerX, innerY, innerW, innerH, palette, false);
+      drawPieOrDonut(ctx, el, innerX, innerY, innerW, innerH, palette, false, primaryText, mutedText);
       break;
     case 'donut':
-      drawPieOrDonut(ctx, el, innerX, innerY, innerW, innerH, palette, true);
+      drawPieOrDonut(ctx, el, innerX, innerY, innerW, innerH, palette, true, primaryText, mutedText);
+      break;
+    case 'semi-donut':
+      drawSemiDonut(ctx, el, innerX, innerY, innerW, innerH, palette, primaryText, mutedText);
       break;
     case 'line':
-      drawLineChart(ctx, el, innerX, innerY, innerW, innerH, palette);
+      drawLineOrAreaChart(ctx, el, innerX, innerY, innerW, innerH, palette, 'line', primaryText, mutedText);
+      break;
+    case 'area':
+      drawLineOrAreaChart(ctx, el, innerX, innerY, innerW, innerH, palette, 'area', primaryText, mutedText);
+      break;
+    case 'spline':
+      drawLineOrAreaChart(ctx, el, innerX, innerY, innerW, innerH, palette, 'spline', primaryText, mutedText);
+      break;
+    case 'scatter':
+      drawScatterChart(ctx, el, innerX, innerY, innerW, innerH, palette, primaryText, mutedText);
+      break;
+    case 'radar':
+      drawRadarChart(ctx, el, innerX, innerY, innerW, innerH, palette, primaryText, mutedText);
+      break;
+    case 'funnel':
+      drawFunnelChart(ctx, el, innerX, innerY, innerW, innerH, palette, primaryText);
       break;
     case 'progress-ring':
-      drawProgressRing(ctx, el, innerX, innerY, innerW, innerH, palette);
+      drawProgressRing(ctx, el, innerX, innerY, innerW, innerH, palette, primaryText, mutedText);
+      break;
+    case 'progress-bar':
+      drawProgressBar(ctx, el, innerX, innerY, innerW, innerH, palette, primaryText, mutedText);
       break;
     case 'metric-kpi':
-      drawMetricKpi(ctx, el, innerX, innerY, innerW, innerH, palette);
+      drawMetricKpi(ctx, el, innerX, innerY, innerW, innerH, palette, primaryText, mutedText);
       break;
+    case 'comparison-table':
+      drawComparisonTable(ctx, el, innerX, innerY, innerW, innerH, palette, primaryText, mutedText);
+      break;
+  }
+}
+
+function drawGridlines(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  rows: number = 3
+) {
+  ctx.strokeStyle = 'rgba(148, 163, 184, 0.16)';
+  ctx.lineWidth = 1;
+  for (let g = 0; g <= rows; g++) {
+    const gy = y + (h / rows) * g;
+    ctx.beginPath();
+    ctx.moveTo(x, gy);
+    ctx.lineTo(x + w, gy);
+    ctx.stroke();
   }
 }
 
@@ -535,7 +724,9 @@ function drawBarChart(
   y: number,
   w: number,
   h: number,
-  palette: string[]
+  palette: string[],
+  primaryText: string,
+  mutedText: string
 ) {
   const data = el.data || [];
   if (data.length === 0) return;
@@ -543,9 +734,13 @@ function drawBarChart(
   const maxVal = Math.max(...data.map((d) => d.value), 1);
   const bottomLabelH = 22;
   const topValueH = el.showValues ? 18 : 6;
-  const chartH = h - bottomLabelH - topValueH;
+  const chartH = Math.max(20, h - bottomLabelH - topValueH);
   const barGap = 12;
   const barW = Math.max(12, (w - barGap * (data.length - 1)) / data.length);
+
+  if (el.showGridlines !== false) {
+    drawGridlines(ctx, x, y + topValueH, w, chartH, 3);
+  }
 
   data.forEach((item, i) => {
     const barX = x + i * (barW + barGap);
@@ -553,27 +748,135 @@ function drawBarChart(
     const barY = y + topValueH + (chartH - itemHeight);
     const color = item.color || palette[i % palette.length];
 
-    // Background track
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.05)';
+    ctx.fillStyle = 'rgba(148, 163, 184, 0.08)';
     roundRect(ctx, barX, y + topValueH, barW, chartH, 6);
     ctx.fill();
 
-    // Bar fill
     ctx.fillStyle = color;
     roundRect(ctx, barX, barY, barW, itemHeight, 6);
     ctx.fill();
 
-    // Top value text
     if (el.showValues) {
-      ctx.fillStyle = '#ffffff';
+      ctx.fillStyle = primaryText;
       ctx.font = '700 11px "Outfit", monospace';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'bottom';
-      ctx.fillText(`${item.value}`, barX + barW / 2, barY - 2);
+      ctx.fillText(formatChartVal(el, item.value), barX + barW / 2, barY - 2);
     }
 
-    // Bottom label text
-    ctx.fillStyle = '#94a3b8';
+    ctx.fillStyle = mutedText;
+    ctx.font = '600 10px "Plus Jakarta Sans", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    const cleanLabel = item.label.length > 8 ? item.label.slice(0, 7) + '..' : item.label;
+    ctx.fillText(cleanLabel, barX + barW / 2, y + topValueH + chartH + 4);
+  });
+}
+
+function drawHorizontalBarChart(
+  ctx: CanvasRenderingContext2D,
+  el: ChartElement,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  palette: string[],
+  primaryText: string,
+  mutedText: string
+) {
+  const data = el.data || [];
+  if (data.length === 0) return;
+
+  const maxVal = Math.max(...data.map((d) => d.value), 1);
+  const labelW = Math.min(95, w * 0.28);
+  const valW = el.showValues ? 46 : 8;
+  const barAreaW = Math.max(40, w - labelW - valW - 12);
+  const rowGap = 8;
+  const rowH = Math.max(14, (h - rowGap * (data.length - 1)) / data.length);
+
+  data.forEach((item, i) => {
+    const rowY = y + i * (rowH + rowGap);
+    const barW = (item.value / maxVal) * barAreaW;
+    const color = item.color || palette[i % palette.length];
+
+    ctx.fillStyle = mutedText;
+    ctx.font = '600 11px "Plus Jakarta Sans", sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    const cleanLabel = item.label.length > 11 ? item.label.slice(0, 10) + '..' : item.label;
+    ctx.fillText(cleanLabel, x, rowY + rowH / 2);
+
+    const trackX = x + labelW + 6;
+    ctx.fillStyle = 'rgba(148, 163, 184, 0.1)';
+    roundRect(ctx, trackX, rowY + 2, barAreaW, Math.max(8, rowH - 4), 6);
+    ctx.fill();
+
+    ctx.fillStyle = color;
+    roundRect(ctx, trackX, rowY + 2, Math.max(6, barW), Math.max(8, rowH - 4), 6);
+    ctx.fill();
+
+    if (el.showValues) {
+      ctx.fillStyle = primaryText;
+      ctx.font = '700 11px "Outfit", monospace';
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(formatChartVal(el, item.value), x + w, rowY + rowH / 2);
+    }
+  });
+}
+
+function drawStackedBarChart(
+  ctx: CanvasRenderingContext2D,
+  el: ChartElement,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  palette: string[],
+  primaryText: string,
+  mutedText: string
+) {
+  const data = el.data || [];
+  if (data.length === 0) return;
+
+  const totals = data.map((d) => d.value + (d.secondaryValue ?? Math.round(d.value * 0.45)));
+  const maxTotal = Math.max(...totals, 1);
+  const bottomLabelH = 22;
+  const topValueH = el.showValues ? 18 : 6;
+  const chartH = Math.max(20, h - bottomLabelH - topValueH);
+  const barGap = 12;
+  const barW = Math.max(14, (w - barGap * (data.length - 1)) / data.length);
+
+  if (el.showGridlines !== false) {
+    drawGridlines(ctx, x, y + topValueH, w, chartH, 3);
+  }
+
+  data.forEach((item, i) => {
+    const sec = item.secondaryValue ?? Math.round(item.value * 0.45);
+    const total = item.value + sec;
+    const barX = x + i * (barW + barGap);
+    const h1 = (item.value / maxTotal) * chartH;
+    const h2 = (sec / maxTotal) * chartH;
+    const y1 = y + topValueH + (chartH - h1);
+    const y2 = y1 - h2;
+
+    ctx.fillStyle = palette[0] || '#38bdf8';
+    roundRect(ctx, barX, y1, barW, h1, 4);
+    ctx.fill();
+
+    ctx.fillStyle = palette[1] || '#f59e0b';
+    roundRect(ctx, barX, y2, barW, Math.max(4, h2 - 2), 4);
+    ctx.fill();
+
+    if (el.showValues) {
+      ctx.fillStyle = primaryText;
+      ctx.font = '700 10px "Outfit", monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'bottom';
+      ctx.fillText(formatChartVal(el, total), barX + barW / 2, y2 - 2);
+    }
+
+    ctx.fillStyle = mutedText;
     ctx.font = '600 10px "Plus Jakarta Sans", sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
@@ -590,15 +893,17 @@ function drawPieOrDonut(
   w: number,
   h: number,
   palette: string[],
-  isDonut: boolean
+  isDonut: boolean,
+  primaryText: string,
+  mutedText: string
 ) {
   const data = el.data || [];
   if (data.length === 0) return;
 
   const total = data.reduce((acc, curr) => acc + curr.value, 0) || 1;
-  const legendH = el.showLegend ? 32 : 0;
-  const chartH = h - legendH;
-  const radius = Math.min(w, chartH) / 2 - 8;
+  const legendH = el.showLegend ? 30 : 0;
+  const chartH = Math.max(40, h - legendH);
+  const radius = Math.max(16, Math.min(w, chartH) / 2 - 8);
   const centerX = x + w / 2;
   const centerY = y + chartH / 2;
 
@@ -617,33 +922,32 @@ function drawPieOrDonut(
     ctx.fill();
 
     ctx.lineWidth = 2;
-    ctx.strokeStyle = el.backgroundColor || '#0f172a';
+    ctx.strokeStyle =
+      el.backgroundColor && el.backgroundColor !== 'transparent' ? el.backgroundColor : '#0f172a';
     ctx.stroke();
 
     startAngle = endAngle;
   });
 
-  // Donut inner cutout
   if (isDonut) {
     const innerRadius = radius * 0.58;
     ctx.beginPath();
     ctx.arc(centerX, centerY, innerRadius, 0, Math.PI * 2);
-    ctx.fillStyle = el.backgroundColor || '#0f172a';
+    ctx.fillStyle =
+      el.backgroundColor && el.backgroundColor !== 'transparent' ? el.backgroundColor : '#0f172a';
     ctx.fill();
 
-    // Center text
-    ctx.fillStyle = '#ffffff';
+    ctx.fillStyle = primaryText;
     ctx.font = '800 18px "Outfit", sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(`${Math.round((data[0]?.value / total) * 100)}%`, centerX, centerY - 4);
 
     ctx.font = '600 9px "Plus Jakarta Sans", sans-serif';
-    ctx.fillStyle = '#94a3b8';
+    ctx.fillStyle = mutedText;
     ctx.fillText('JUMLA', centerX, centerY + 12);
   }
 
-  // Legend at bottom
   if (el.showLegend) {
     const legendY = y + chartH + 8;
     const itemW = w / Math.min(data.length, 3);
@@ -655,24 +959,86 @@ function drawPieOrDonut(
       ctx.arc(legX + 6, legendY + 6, 4, 0, Math.PI * 2);
       ctx.fill();
 
-      ctx.fillStyle = '#cbd5e1';
+      ctx.fillStyle = mutedText;
       ctx.font = '600 10px "Plus Jakarta Sans", sans-serif';
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
       const pct = Math.round((item.value / total) * 100);
-      ctx.fillText(`${item.label} (${pct}%)`, legX + 14, legendY + 6);
+      ctx.fillText(`${item.label.slice(0, 8)} (${pct}%)`, legX + 14, legendY + 6);
     });
   }
 }
 
-function drawLineChart(
+function drawSemiDonut(
   ctx: CanvasRenderingContext2D,
   el: ChartElement,
   x: number,
   y: number,
   w: number,
   h: number,
-  palette: string[]
+  palette: string[],
+  primaryText: string,
+  mutedText: string
+) {
+  const data = el.data || [];
+  if (data.length === 0) return;
+  const total = data.reduce((acc, curr) => acc + curr.value, 0) || 1;
+  const legendH = el.showLegend ? 24 : 0;
+  const availH = h - legendH;
+  const radius = Math.max(20, Math.min(w / 2 - 12, availH - 12));
+  const strokeW = Math.max(12, radius * 0.28);
+  const centerX = x + w / 2;
+  const centerY = y + availH - 10;
+
+  let startAngle = Math.PI;
+  data.forEach((item, i) => {
+    const slice = (item.value / total) * Math.PI;
+    const endAngle = startAngle + slice;
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, radius - strokeW / 2, startAngle, endAngle);
+    ctx.strokeStyle = item.color || palette[i % palette.length];
+    ctx.lineWidth = strokeW;
+    ctx.stroke();
+    startAngle = endAngle;
+  });
+
+  ctx.fillStyle = primaryText;
+  ctx.font = '800 22px "Outfit", sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'bottom';
+  ctx.fillText(formatChartVal(el, total), centerX, centerY - 12);
+
+  ctx.fillStyle = mutedText;
+  ctx.font = '600 10px "Plus Jakarta Sans", sans-serif';
+  ctx.fillText('JUMLA KUU', centerX, centerY);
+
+  if (el.showLegend) {
+    const legY = y + availH + 6;
+    const itemW = w / Math.min(data.length, 3);
+    data.slice(0, 3).forEach((item, i) => {
+      const legX = x + i * itemW;
+      ctx.fillStyle = item.color || palette[i % palette.length];
+      ctx.fillRect(legX, legY + 2, 8, 8);
+      ctx.fillStyle = mutedText;
+      ctx.font = '600 10px "Plus Jakarta Sans", sans-serif';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      ctx.fillText(item.label.slice(0, 9), legX + 12, legY);
+    });
+  }
+}
+
+function drawLineOrAreaChart(
+  ctx: CanvasRenderingContext2D,
+  el: ChartElement,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  palette: string[],
+  mode: 'line' | 'area' | 'spline',
+  primaryText: string,
+  mutedText: string
 ) {
   const data = el.data || [];
   if (data.length < 2) return;
@@ -680,23 +1046,15 @@ function drawLineChart(
   const maxVal = Math.max(...data.map((d) => d.value), 1);
   const bottomLabelH = 20;
   const topValH = 16;
-  const chartH = h - bottomLabelH - topValH;
+  const chartH = Math.max(20, h - bottomLabelH - topValH);
   const stepX = (w - 20) / (data.length - 1);
   const startX = x + 10;
   const color = palette[0] || '#38bdf8';
 
-  // Gridlines
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
-  ctx.lineWidth = 1;
-  for (let g = 0; g <= 3; g++) {
-    const gy = y + topValH + (chartH / 3) * g;
-    ctx.beginPath();
-    ctx.moveTo(x, gy);
-    ctx.lineTo(x + w, gy);
-    ctx.stroke();
+  if (el.showGridlines !== false) {
+    drawGridlines(ctx, x, y + topValH, w, chartH, 3);
   }
 
-  // Points coordinates
   const points = data.map((d, i) => ({
     x: startX + i * stepX,
     y: y + topValH + (chartH - (d.value / maxVal) * chartH),
@@ -704,30 +1062,55 @@ function drawLineChart(
     label: d.label
   }));
 
+  const tracePath = () => {
+    ctx.moveTo(points[0].x, points[0].y);
+    if (mode === 'spline' && points.length > 2) {
+      for (let i = 0; i < points.length - 1; i++) {
+        const xc = (points[i].x + points[i + 1].x) / 2;
+        const yc = (points[i].y + points[i + 1].y) / 2;
+        ctx.quadraticCurveTo(points[i].x, points[i].y, xc, yc);
+      }
+      ctx.lineTo(points[points.length - 1].x, points[points.length - 1].y);
+    } else {
+      for (let i = 1; i < points.length; i++) {
+        ctx.lineTo(points[i].x, points[i].y);
+      }
+    }
+  };
+
   // Area under curve
-  ctx.beginPath();
-  ctx.moveTo(points[0].x, y + topValH + chartH);
-  points.forEach((p) => ctx.lineTo(p.x, p.y));
-  ctx.lineTo(points[points.length - 1].x, y + topValH + chartH);
-  ctx.closePath();
+  if (mode === 'area' || mode === 'line' || mode === 'spline') {
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, y + topValH + chartH);
+    ctx.lineTo(points[0].x, points[0].y);
+    if (mode === 'spline' && points.length > 2) {
+      for (let i = 0; i < points.length - 1; i++) {
+        const xc = (points[i].x + points[i + 1].x) / 2;
+        const yc = (points[i].y + points[i + 1].y) / 2;
+        ctx.quadraticCurveTo(points[i].x, points[i].y, xc, yc);
+      }
+      ctx.lineTo(points[points.length - 1].x, points[points.length - 1].y);
+    } else {
+      for (let i = 1; i < points.length; i++) {
+        ctx.lineTo(points[i].x, points[i].y);
+      }
+    }
+    ctx.lineTo(points[points.length - 1].x, y + topValH + chartH);
+    ctx.closePath();
 
-  const areaGrad = ctx.createLinearGradient(0, y + topValH, 0, y + topValH + chartH);
-  areaGrad.addColorStop(0, `${color}44`);
-  areaGrad.addColorStop(1, 'transparent');
-  ctx.fillStyle = areaGrad;
-  ctx.fill();
-
-  // Line stroke
-  ctx.beginPath();
-  ctx.moveTo(points[0].x, points[0].y);
-  for (let i = 1; i < points.length; i++) {
-    ctx.lineTo(points[i].x, points[i].y);
+    const areaGrad = ctx.createLinearGradient(0, y + topValH, 0, y + topValH + chartH);
+    areaGrad.addColorStop(0, mode === 'area' ? `${color}88` : `${color}3a`);
+    areaGrad.addColorStop(1, 'transparent');
+    ctx.fillStyle = areaGrad;
+    ctx.fill();
   }
+
+  ctx.beginPath();
+  tracePath();
   ctx.strokeStyle = color;
   ctx.lineWidth = 3;
   ctx.stroke();
 
-  // Points dots & labels
   points.forEach((p) => {
     ctx.beginPath();
     ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
@@ -738,18 +1121,198 @@ function drawLineChart(
     ctx.stroke();
 
     if (el.showValues) {
-      ctx.fillStyle = '#ffffff';
+      ctx.fillStyle = primaryText;
       ctx.font = '700 10px "Outfit", monospace';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'bottom';
-      ctx.fillText(`${p.value}`, p.x, p.y - 6);
+      ctx.fillText(formatChartVal(el, p.value), p.x, p.y - 6);
     }
 
-    ctx.fillStyle = '#94a3b8';
+    ctx.fillStyle = mutedText;
     ctx.font = '600 10px "Plus Jakarta Sans", sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
-    ctx.fillText(p.label, p.x, y + topValH + chartH + 4);
+    ctx.fillText(p.label.slice(0, 7), p.x, y + topValH + chartH + 4);
+  });
+}
+
+function drawScatterChart(
+  ctx: CanvasRenderingContext2D,
+  el: ChartElement,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  palette: string[],
+  primaryText: string,
+  mutedText: string
+) {
+  const data = el.data || [];
+  if (data.length === 0) return;
+
+  const maxVal = Math.max(...data.map((d) => d.value), 1);
+  const bottomLabelH = 20;
+  const topValH = 16;
+  const chartH = Math.max(20, h - bottomLabelH - topValH);
+  const stepX = data.length > 1 ? (w - 30) / (data.length - 1) : 0;
+  const startX = x + 15;
+
+  if (el.showGridlines !== false) {
+    drawGridlines(ctx, x, y + topValH, w, chartH, 4);
+  }
+
+  data.forEach((d, i) => {
+    const px = data.length > 1 ? startX + i * stepX : x + w / 2;
+    const py = y + topValH + (chartH - (d.value / maxVal) * chartH);
+    const color = d.color || palette[i % palette.length];
+    const dotR = 6 + (i % 3) * 2;
+
+    ctx.beginPath();
+    ctx.arc(px, py, dotR, 0, Math.PI * 2);
+    ctx.fillStyle = `${color}cc`;
+    ctx.fill();
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    if (el.showValues) {
+      ctx.fillStyle = primaryText;
+      ctx.font = '700 10px "Outfit", monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'bottom';
+      ctx.fillText(formatChartVal(el, d.value), px, py - dotR - 2);
+    }
+
+    ctx.fillStyle = mutedText;
+    ctx.font = '600 10px "Plus Jakarta Sans", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText(d.label.slice(0, 7), px, y + topValH + chartH + 4);
+  });
+}
+
+function drawRadarChart(
+  ctx: CanvasRenderingContext2D,
+  el: ChartElement,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  palette: string[],
+  primaryText: string,
+  mutedText: string
+) {
+  const data = el.data || [];
+  const count = data.length;
+  if (count < 3) {
+    drawBarChart(ctx, el, x, y, w, h, palette, primaryText, mutedText);
+    return;
+  }
+
+  const maxVal = Math.max(...data.map((d) => d.value), 1);
+  const cx = x + w / 2;
+  const cy = y + h / 2;
+  const radius = Math.max(24, Math.min(w, h) / 2 - 22);
+  const color = palette[0] || '#38bdf8';
+
+  // Concentric radar rings
+  for (let ring = 1; ring <= 3; ring++) {
+    const r = (radius / 3) * ring;
+    ctx.beginPath();
+    for (let i = 0; i < count; i++) {
+      const ang = -Math.PI / 2 + (i * Math.PI * 2) / count;
+      const px = cx + Math.cos(ang) * r;
+      const py = cy + Math.sin(ang) * r;
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.strokeStyle = 'rgba(148, 163, 184, 0.2)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+
+  // Axis lines & labels
+  data.forEach((d, i) => {
+    const ang = -Math.PI / 2 + (i * Math.PI * 2) / count;
+    const px = cx + Math.cos(ang) * radius;
+    const py = cy + Math.sin(ang) * radius;
+
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(px, py);
+    ctx.strokeStyle = 'rgba(148, 163, 184, 0.2)';
+    ctx.stroke();
+
+    const lx = cx + Math.cos(ang) * (radius + 12);
+    const ly = cy + Math.sin(ang) * (radius + 12);
+    ctx.fillStyle = mutedText;
+    ctx.font = '600 9px "Plus Jakarta Sans", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(d.label.slice(0, 8), lx, ly);
+  });
+
+  // Data polygon
+  ctx.beginPath();
+  data.forEach((d, i) => {
+    const ang = -Math.PI / 2 + (i * Math.PI * 2) / count;
+    const r = (d.value / maxVal) * radius;
+    const px = cx + Math.cos(ang) * r;
+    const py = cy + Math.sin(ang) * r;
+    if (i === 0) ctx.moveTo(px, py);
+    else ctx.lineTo(px, py);
+  });
+  ctx.closePath();
+  ctx.fillStyle = `${color}55`;
+  ctx.fill();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2.5;
+  ctx.stroke();
+}
+
+function drawFunnelChart(
+  ctx: CanvasRenderingContext2D,
+  el: ChartElement,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  palette: string[],
+  primaryText: string
+) {
+  const data = el.data || [];
+  if (data.length === 0) return;
+
+  const maxVal = Math.max(...data.map((d) => d.value), 1);
+  const gap = 4;
+  const stageH = Math.max(16, (h - gap * (data.length - 1)) / data.length);
+  const cx = x + w / 2;
+
+  data.forEach((item, i) => {
+    const sy = y + i * (stageH + gap);
+    const topW = Math.max(w * 0.25, (item.value / maxVal) * w);
+    const nextVal = data[i + 1]?.value ?? item.value * 0.72;
+    const botW = Math.max(w * 0.2, (nextVal / maxVal) * w);
+    const color = item.color || palette[i % palette.length];
+
+    ctx.beginPath();
+    ctx.moveTo(cx - topW / 2, sy);
+    ctx.lineTo(cx + topW / 2, sy);
+    ctx.lineTo(cx + botW / 2, sy + stageH);
+    ctx.lineTo(cx - botW / 2, sy + stageH);
+    ctx.closePath();
+    ctx.fillStyle = color;
+    ctx.fill();
+
+    ctx.fillStyle = primaryText;
+    ctx.font = '700 11px "Outfit", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const text = el.showValues
+      ? `${item.label}: ${formatChartVal(el, item.value)}`
+      : item.label;
+    ctx.fillText(text, cx, sy + stageH / 2);
   });
 }
 
@@ -760,23 +1323,23 @@ function drawProgressRing(
   y: number,
   w: number,
   h: number,
-  palette: string[]
+  palette: string[],
+  primaryText: string,
+  mutedText: string
 ) {
   const pct = Math.min(100, Math.max(0, el.progressValue ?? 75));
-  const radius = Math.min(w, h) / 2 - 12;
+  const radius = Math.max(18, Math.min(w, h) / 2 - 12);
   const centerX = x + w / 2;
   const centerY = y + h / 2 - 6;
   const strokeW = Math.max(8, radius * 0.18);
   const color = palette[0] || '#10b981';
 
-  // Background ring
   ctx.beginPath();
   ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+  ctx.strokeStyle = 'rgba(148, 163, 184, 0.14)';
   ctx.lineWidth = strokeW;
   ctx.stroke();
 
-  // Foreground active arc
   const startAngle = -Math.PI / 2;
   const endAngle = startAngle + (pct / 100) * (Math.PI * 2);
 
@@ -787,19 +1350,55 @@ function drawProgressRing(
   ctx.lineCap = 'round';
   ctx.stroke();
 
-  // Center percentage
-  ctx.fillStyle = '#ffffff';
+  ctx.fillStyle = primaryText;
   ctx.font = `800 ${Math.round(radius * 0.55)}px "Outfit", sans-serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(`${pct}%`, centerX, centerY);
 
-  // Bottom label
   if (el.progressLabel) {
-    ctx.fillStyle = '#cbd5e1';
+    ctx.fillStyle = mutedText;
     ctx.font = '700 11px "Outfit", sans-serif';
     ctx.fillText(el.progressLabel, centerX, y + h - 8);
   }
+}
+
+function drawProgressBar(
+  ctx: CanvasRenderingContext2D,
+  el: ChartElement,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  palette: string[],
+  primaryText: string,
+  mutedText: string
+) {
+  const pct = Math.min(100, Math.max(0, el.progressValue ?? 75));
+  const color = palette[0] || '#10b981';
+  const barH = Math.min(28, Math.max(14, h * 0.22));
+  const centerY = y + h / 2;
+
+  ctx.fillStyle = primaryText;
+  ctx.font = '800 26px "Outfit", sans-serif';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'bottom';
+  ctx.fillText(`${pct}%`, x, centerY - 6);
+
+  if (el.progressLabel) {
+    ctx.fillStyle = mutedText;
+    ctx.font = '600 12px "Plus Jakarta Sans", sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillText(el.progressLabel, x + w, centerY - 8);
+  }
+
+  ctx.fillStyle = 'rgba(148, 163, 184, 0.16)';
+  roundRect(ctx, x, centerY, w, barH, barH / 2);
+  ctx.fill();
+
+  ctx.fillStyle = color;
+  roundRect(ctx, x, centerY, Math.max(barH, (pct / 100) * w), barH, barH / 2);
+  ctx.fill();
 }
 
 function drawMetricKpi(
@@ -809,17 +1408,21 @@ function drawMetricKpi(
   y: number,
   w: number,
   h: number,
-  palette: string[]
+  palette: string[],
+  primaryText: string,
+  mutedText: string
 ) {
   const value = el.kpiValue || '+148%';
   const label = el.kpiLabel || 'Ukuaji wa Mauzo ya Mwaka';
-  const color = palette[0] || '#10b981';
+  const trend = el.kpiTrend || 'up';
+  const color =
+    trend === 'down' ? '#ef4444' : trend === 'neutral' ? '#f59e0b' : palette[0] || '#10b981';
+  const badgeText = trend === 'down' ? '▼ IMESHUKA' : trend === 'neutral' ? '● THABITI' : '▲ INAKUA';
 
   const centerY = y + h / 2;
 
-  // Trend Badge
   ctx.fillStyle = `${color}25`;
-  const badgeW = 90;
+  const badgeW = 98;
   const badgeH = 22;
   roundRect(ctx, x, y + 4, badgeW, badgeH, 6);
   ctx.fill();
@@ -828,19 +1431,74 @@ function drawMetricKpi(
   ctx.font = '700 11px "Outfit", sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText('▲ INAKUA', x + badgeW / 2, y + 4 + badgeH / 2);
+  ctx.fillText(badgeText, x + badgeW / 2, y + 4 + badgeH / 2);
 
-  // Big KPI figure
-  ctx.fillStyle = '#ffffff';
+  ctx.fillStyle = primaryText;
   ctx.font = '900 38px "Anton", sans-serif';
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
   ctx.fillText(value, x, centerY + 6);
 
-  // Subtitle
-  ctx.fillStyle = '#94a3b8';
+  ctx.fillStyle = mutedText;
   ctx.font = '600 12px "Plus Jakarta Sans", sans-serif';
   ctx.fillText(label, x, y + h - 8);
+}
+
+function drawComparisonTable(
+  ctx: CanvasRenderingContext2D,
+  el: ChartElement,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  palette: string[],
+  primaryText: string,
+  mutedText: string
+) {
+  const data = el.data || [];
+  if (data.length === 0) return;
+  const maxVal = Math.max(...data.map((d) => d.value), 1);
+  const rowH = Math.max(20, Math.min(34, h / data.length));
+
+  data.forEach((item, i) => {
+    const ry = y + i * rowH;
+    if (ry + rowH > y + h + 4) return;
+
+    if (i % 2 === 0) {
+      ctx.fillStyle = 'rgba(148, 163, 184, 0.08)';
+      roundRect(ctx, x, ry, w, rowH - 2, 6);
+      ctx.fill();
+    }
+
+    const color = item.color || palette[i % palette.length];
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(x + 12, ry + (rowH - 2) / 2, 4, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = primaryText;
+    ctx.font = '600 11px "Plus Jakarta Sans", sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(item.label.slice(0, 18), x + 24, ry + (rowH - 2) / 2);
+
+    // Mini proportional bar
+    const miniW = Math.min(80, w * 0.26);
+    const miniX = x + w - miniW - 58;
+    if (miniW > 24) {
+      ctx.fillStyle = 'rgba(148, 163, 184, 0.14)';
+      roundRect(ctx, miniX, ry + (rowH - 8) / 2, miniW, 6, 3);
+      ctx.fill();
+      ctx.fillStyle = color;
+      roundRect(ctx, miniX, ry + (rowH - 8) / 2, (item.value / maxVal) * miniW, 6, 3);
+      ctx.fill();
+    }
+
+    ctx.fillStyle = mutedText;
+    ctx.font = '700 11px "Outfit", monospace';
+    ctx.textAlign = 'right';
+    ctx.fillText(formatChartVal(el, item.value), x + w - 8, ry + (rowH - 2) / 2);
+  });
 }
 
 // Helpers for shapes
@@ -929,7 +1587,7 @@ function drawArrowPath(
   w: number,
   h: number
 ) {
-  const headW = h;
+  const headW = Math.min(w * 0.45, h);
   const stemH = h * 0.4;
   ctx.moveTo(x, y + (h - stemH) / 2);
   ctx.lineTo(x + w - headW, y + (h - stemH) / 2);
@@ -939,6 +1597,97 @@ function drawArrowPath(
   ctx.lineTo(x + w - headW, y + (h + stemH) / 2);
   ctx.lineTo(x, y + (h + stemH) / 2);
   ctx.closePath();
+}
+
+function drawPolygonPath(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  sides: number
+) {
+  const cx = x + w / 2;
+  const cy = y + h / 2;
+  const rx = w / 2;
+  const ry = h / 2;
+  for (let i = 0; i < sides; i++) {
+    const angle = -Math.PI / 2 + (i * Math.PI * 2) / sides;
+    const px = cx + Math.cos(angle) * rx;
+    const py = cy + Math.sin(angle) * ry;
+    if (i === 0) ctx.moveTo(px, py);
+    else ctx.lineTo(px, py);
+  }
+  ctx.closePath();
+}
+
+function drawSpeechBubblePath(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number
+) {
+  const bodyH = h * 0.78;
+  const r = Math.min(18, w * 0.15, bodyH * 0.35);
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + bodyH - r);
+  ctx.quadraticCurveTo(x + w, y + bodyH, x + w - r, y + bodyH);
+  ctx.lineTo(x + w * 0.42, y + bodyH);
+  ctx.lineTo(x + w * 0.22, y + h);
+  ctx.lineTo(x + w * 0.25, y + bodyH);
+  ctx.lineTo(x + r, y + bodyH);
+  ctx.quadraticCurveTo(x, y + bodyH, x, y + bodyH - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
+function drawWatermark(ctx: CanvasRenderingContext2D, project: PosterProject) {
+  const wm = project.watermark;
+  if (!wm || !wm.enabled || !wm.text?.trim()) return;
+
+  const { width, height } = project;
+  const text = wm.text.trim();
+  const fontSize = Math.max(12, Math.min(96, wm.fontSize || 28));
+  const rad = ((wm.angle ?? -28) * Math.PI) / 180;
+
+  ctx.save();
+  ctx.globalAlpha = Math.max(0.04, Math.min(0.85, wm.opacity ?? 0.22));
+  ctx.fillStyle = wm.color || '#ffffff';
+  ctx.font = `800 ${fontSize}px "Outfit", sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  if (wm.pattern === 'single-center') {
+    ctx.translate(width / 2, height / 2);
+    ctx.rotate(rad);
+    ctx.font = `900 ${Math.round(fontSize * 1.6)}px "Outfit", sans-serif`;
+    ctx.fillText(text, 0, 0);
+  } else if (wm.pattern === 'bottom-corner') {
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'bottom';
+    ctx.font = `800 ${Math.max(14, Math.round(fontSize * 0.8))}px "Outfit", sans-serif`;
+    ctx.fillText(text, width - 28, height - 22);
+  } else {
+    // tiled-diagonal
+    const metrics = ctx.measureText(text);
+    const stepX = Math.max(220, metrics.width + 90);
+    const stepY = Math.max(140, fontSize * 4.5);
+
+    ctx.translate(width / 2, height / 2);
+    ctx.rotate(rad);
+    const span = Math.hypot(width, height);
+    for (let y = -span; y <= span; y += stepY) {
+      for (let x = -span; x <= span; x += stepX) {
+        ctx.fillText(text, x, y);
+      }
+    }
+  }
+
+  ctx.restore();
 }
 
 // High Quality Downloader Functions

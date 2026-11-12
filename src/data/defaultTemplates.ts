@@ -1,4 +1,5 @@
 import { PosterTemplate, CanvasDimensions } from '../types/poster';
+import { STOCK_POSTER_IMAGES } from './stockImages';
 
 export const CANVAS_PRESETS: CanvasDimensions[] = [
   {
@@ -45,6 +46,42 @@ export const CANVAS_PRESETS: CanvasDimensions[] = [
     height: 720,
     description: 'Web banners, YouTube thumbnails, Twitter',
     ratioLabel: '16:9'
+  },
+  {
+    id: 'business_card',
+    name: 'Business Card (7:4)',
+    labelSwahili: 'Kadi ya Biashara (Business Card)',
+    width: 1050,
+    height: 600,
+    description: 'Kadi rasmi ya mawasiliano ya kampuni au mtu binafsi',
+    ratioLabel: '7:4'
+  },
+  {
+    id: 'id_card',
+    name: 'ID Card (Portrait)',
+    labelSwahili: 'Kitambulisho (ID Card)',
+    width: 640,
+    height: 1000,
+    description: 'Kitambulisho cha kazi, shule, au tukio',
+    ratioLabel: '16:25'
+  },
+  {
+    id: 'certificate_landscape',
+    name: 'Certificate (A4 Landscape)',
+    labelSwahili: 'Cheti cha Heshima (Certificate)',
+    width: 1120,
+    height: 800,
+    description: 'Cheti cha kuhitimu, pongezi, au ushiriki',
+    ratioLabel: '7:5'
+  },
+  {
+    id: 'magazine_cover',
+    name: 'Magazine Cover',
+    labelSwahili: 'Jarida (Magazine Cover)',
+    width: 850,
+    height: 1150,
+    description: 'Jalada la jarida, habari kuu na makala',
+    ratioLabel: '3:4'
   }
 ];
 
@@ -401,11 +438,11 @@ export const DEFAULT_TEMPLATES: PosterTemplate[] = [
     height: 1100,
     background: {
       type: 'image',
-      imageUrl: '/src/assets/images/poster_music_concert_1794504649640.jpg',
+      imageUrl: STOCK_POSTER_IMAGES.musicConcert,
       overlayColor: '#0a0510',
       overlayOpacity: 0.45
     },
-    thumbnailPreview: '/src/assets/images/poster_music_concert_1794504649640.jpg',
+    thumbnailPreview: STOCK_POSTER_IMAGES.musicConcert,
     elements: [
       {
         id: 'c_ribbon',
@@ -574,11 +611,11 @@ export const DEFAULT_TEMPLATES: PosterTemplate[] = [
     height: 1100,
     background: {
       type: 'image',
-      imageUrl: '/src/assets/images/poster_business_summit_1794504649292.jpg',
+      imageUrl: STOCK_POSTER_IMAGES.businessSummit,
       overlayColor: '#0b1329',
       overlayOpacity: 0.65
     },
-    thumbnailPreview: '/src/assets/images/poster_business_summit_1794504649292.jpg',
+    thumbnailPreview: STOCK_POSTER_IMAGES.businessSummit,
     elements: [
       {
         id: 'b_tag',
@@ -730,11 +767,11 @@ export const DEFAULT_TEMPLATES: PosterTemplate[] = [
     height: 1100,
     background: {
       type: 'image',
-      imageUrl: '/src/assets/images/poster_food_bbq_1794504648737.jpg',
+      imageUrl: STOCK_POSTER_IMAGES.foodBbq,
       overlayColor: '#120b08',
       overlayOpacity: 0.4
     },
-    thumbnailPreview: '/src/assets/images/poster_food_bbq_1794504648737.jpg',
+    thumbnailPreview: STOCK_POSTER_IMAGES.foodBbq,
     elements: [
       {
         id: 'f_badge_top',
@@ -872,11 +909,11 @@ export const DEFAULT_TEMPLATES: PosterTemplate[] = [
     height: 1100,
     background: {
       type: 'image',
-      imageUrl: '/src/assets/images/poster_fitness_sports_1794504648859.jpg',
+      imageUrl: STOCK_POSTER_IMAGES.fitnessSports,
       overlayColor: '#0f172a',
       overlayOpacity: 0.45
     },
-    thumbnailPreview: '/src/assets/images/poster_fitness_sports_1794504648859.jpg',
+    thumbnailPreview: STOCK_POSTER_IMAGES.fitnessSports,
     elements: [
       {
         id: 's_banner',

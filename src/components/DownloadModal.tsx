@@ -106,13 +106,13 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
         </div>
 
         {/* Modal Body */}
-        <div className="p-6 flex flex-col gap-5 overflow-y-auto max-h-[75vh]">
+        <div className="p-6 flex flex-col gap-5 overflow-y-auto overscroll-contain touch-pan-y max-h-[75vh]">
           {/* Format selector */}
           <div>
             <label className="text-xs font-bold text-neutral-300 block mb-2">
               1. Chagua Umbizo la Faili (File Format):
             </label>
-            <div className="grid grid-cols-4 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               {[
                 {
                   id: 'png' as ExportFormat,
