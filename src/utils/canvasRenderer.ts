@@ -426,6 +426,19 @@ function drawShape(
           ctx.fill(rawPath, 'evenodd');
           ctx.restore();
         }
+        if (el.shapeType === 'verified-badge') {
+          ctx.save();
+          ctx.strokeStyle = '#ffffff';
+          ctx.lineWidth = Math.max(2, Math.min(w, h) * 0.11);
+          ctx.lineCap = 'round';
+          ctx.lineJoin = 'round';
+          ctx.beginPath();
+          ctx.moveTo(x + w * 0.30, y + h * 0.52);
+          ctx.lineTo(x + w * 0.44, y + h * 0.66);
+          ctx.lineTo(x + w * 0.71, y + h * 0.35);
+          ctx.stroke();
+          ctx.restore();
+        }
         return;
       }
       const r = el.borderRadius || 0;
@@ -461,9 +474,10 @@ function drawImage(
   }
 
   const r = el.borderRadius || 0;
+  ctx.save();
   if (r > 0) {
     ctx.beginPath();
-    roundRect(ctx, x, y, w, h, r);
+    roundRect(ctx, x, y, w, h, Math.min(r, Math.min(w, h) / 2));
     ctx.clip();
   }
 
@@ -488,14 +502,52 @@ function drawImage(
     ctx.filter = filters.join(' ');
   }
 
-  ctx.drawImage(img, x, y, w, h);
+  if (el.cropRect) {
+    const sx = Math.max(0, el.cropRect.x * img.width);
+    const sy = Math.max(0, el.cropRect.y * img.height);
+    const sw = Math.max(1, el.cropRect.w * img.width);
+    const sh = Math.max(1, el.cropRect.h * img.height);
+    ctx.drawImage(img, sx, sy, sw, sh, x, y, w, h);
+  } else if (el.objectFit === 'contain') {
+    const imgRatio = img.width / Math.max(1, img.height);
+    const boxRatio = w / Math.max(1, h);
+    let dw = w;
+    let dh = h;
+    let dx = x;
+    let dy = y;
+    if (imgRatio > boxRatio) {
+      dh = w / imgRatio;
+      dy = y + (h - dh) / 2;
+    } else {
+      dw = h * imgRatio;
+      dx = x + (w - dw) / 2;
+    }
+    ctx.drawImage(img, dx, dy, dw, dh);
+  } else {
+    // Center object-cover crop so circle avatars and portraits never stretch
+    const imgRatio = img.width / Math.max(1, img.height);
+    const boxRatio = w / Math.max(1, h);
+    let sx = 0;
+    let sy = 0;
+    let sw = img.width;
+    let sh = img.height;
+    if (imgRatio > boxRatio) {
+      sw = img.height * boxRatio;
+      sx = (img.width - sw) / 2;
+    } else if (imgRatio < boxRatio) {
+      sh = img.width / boxRatio;
+      sy = (img.height - sh) / 2;
+    }
+    ctx.drawImage(img, sx, sy, sw, sh, x, y, w, h);
+  }
   ctx.filter = 'none';
+  ctx.restore();
 
   if (el.borderColor && el.borderWidth && el.borderWidth > 0) {
     ctx.strokeStyle = el.borderColor;
     ctx.lineWidth = el.borderWidth;
     ctx.beginPath();
-    roundRect(ctx, x, y, w, h, r);
+    roundRect(ctx, x, y, w, h, Math.min(r, Math.min(w, h) / 2));
     ctx.stroke();
   }
 }

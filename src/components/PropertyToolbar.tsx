@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   PosterElement,
+  PosterBackground,
   TextElement,
   ShapeElement,
   ImageElement,
@@ -11,6 +12,7 @@ import {
   ChartType
 } from '../types/poster';
 import { IMAGE_COLOR_PRESETS } from '../data/colorEffects';
+import { processUploadedImageFile } from '../utils/imageUpload';
 import {
   Bold,
   Italic,
@@ -34,13 +36,26 @@ import {
   AlignVerticalJustifyCenter,
   Grid,
   SlidersHorizontal,
-  X
+  X,
+  Upload,
+  BadgeCheck,
+  Image as ImageIcon,
+  Layers
 } from 'lucide-react';
 
 interface PropertyToolbarProps {
   selectedElement: PosterElement | null;
   canvasWidth: number;
   canvasHeight: number;
+  elementCount?: number;
+  hasBackgroundImage?: boolean;
+  hasWatermark?: boolean;
+  hasColorEffect?: boolean;
+  onChangeBackground?: (bg: PosterBackground) => void;
+  onClearWatermark?: () => void;
+  onClearColorEffect?: () => void;
+  onOpenLayersModal?: () => void;
+  onAddVerifiedBadge?: (color?: string) => void;
   onUpdateElement: (updated: Partial<PosterElement>, commit?: boolean) => void;
   onDeleteElement: (id: string) => void;
   onDuplicateElement: (id: string) => void;
@@ -56,6 +71,15 @@ export const PropertyToolbar: React.FC<PropertyToolbarProps> = React.memo(({
   selectedElement,
   canvasWidth,
   canvasHeight,
+  elementCount = 0,
+  hasBackgroundImage,
+  hasWatermark,
+  hasColorEffect,
+  onChangeBackground,
+  onClearWatermark,
+  onClearColorEffect,
+  onOpenLayersModal,
+  onAddVerifiedBadge,
   onUpdateElement,
   onDeleteElement,
   onDuplicateElement,
@@ -74,15 +98,105 @@ export const PropertyToolbar: React.FC<PropertyToolbarProps> = React.memo(({
     }
   }, [selectedElement]);
 
+  const handleElementPhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || !selectedElement) return;
+    try {
+      const { dataUrl } = await processUploadedImageFile(file);
+      if (selectedElement.type === 'image') {
+        onUpdateElement({ src: dataUrl, cropRect: undefined } as Partial<PosterElement>);
+      } else if (selectedElement.type === 'shape') {
+        const sh = selectedElement as ShapeElement;
+        onUpdateElement({
+          type: 'image',
+          src: dataUrl,
+          cropRect: undefined,
+          borderRadius: sh.shapeType === 'circle' ? 999 : sh.borderRadius || 12
+        } as Partial<PosterElement>);
+      }
+    } catch {
+      // Ignore upload failure gracefully
+    }
+  };
+
+  const handleBgPhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || !onChangeBackground) return;
+    try {
+      const { dataUrl } = await processUploadedImageFile(file, 1600);
+      onChangeBackground({
+        type: 'image',
+        imageUrl: dataUrl,
+        overlayOpacity: 0
+      });
+    } catch {
+      // Ignore upload failure gracefully
+    }
+  };
+
   if (!selectedElement) {
     return (
-      <div className="h-9 md:h-10 bg-neutral-900/60 border-b border-neutral-800/80 px-3 md:px-4 flex items-center justify-between text-[11px] md:text-xs text-neutral-500 shrink-0">
-        <span className="truncate">
-          Gusa kipengele kwenye bango kuhariri rangi, grafu, au mpangilio
+      <div className="min-h-[40px] bg-neutral-900/75 border-b border-neutral-800/80 px-2.5 md:px-4 py-1 flex items-center justify-between gap-2 text-[11px] md:text-xs text-neutral-400 shrink-0 overflow-x-auto scrollbar-none">
+        <span className="truncate hidden lg:inline">
+          Gusa kitu chochote kwenye bango kukihariri au kukifuta — au tumia Tabaka:
         </span>
-        <span className="hidden md:inline font-mono text-[11px] shrink-0">
-          Bofya mara mbili kubadili maandishi moja kwa moja
-        </span>
+        <div className="flex items-center gap-1.5 w-full lg:w-auto justify-between lg:justify-end shrink-0">
+          {onOpenLayersModal && elementCount > 0 && (
+            <button
+              onClick={onOpenLayersModal}
+              className="min-h-[30px] px-2.5 py-1 bg-neutral-800 hover:bg-neutral-700 border border-amber-400/40 text-amber-300 rounded-lg font-bold flex items-center gap-1.5 cursor-pointer transition-colors shrink-0"
+              title="Angalia na futa vipengele vyote vya template"
+            >
+              <Layers className="w-3.5 h-3.5 text-amber-400" />
+              <span>Tabaka / Futa Vitu ({elementCount})</span>
+            </button>
+          )}
+          {onChangeBackground && (
+            <label className="min-h-[30px] px-2.5 py-1 bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 hover:border-amber-400 text-neutral-100 rounded-lg font-semibold flex items-center gap-1.5 cursor-pointer transition-colors shrink-0">
+              <ImageIcon className="w-3.5 h-3.5 text-amber-400" />
+              <span>Pakia Picha BG</span>
+              <input type="file" accept="image/*" onChange={handleBgPhotoUpload} className="hidden" />
+            </label>
+          )}
+          {hasBackgroundImage && onChangeBackground && (
+            <button
+              onClick={() => onChangeBackground({ type: 'color', color: '#0f172a' })}
+              className="min-h-[30px] px-2 py-1 bg-red-500/15 hover:bg-red-600 hover:text-white border border-red-500/40 text-red-300 rounded-lg font-semibold flex items-center gap-1 cursor-pointer shrink-0 transition-colors"
+            >
+              <Trash2 className="w-3 h-3" />
+              <span>Ondoa BG</span>
+            </button>
+          )}
+          {hasWatermark && onClearWatermark && (
+            <button
+              onClick={onClearWatermark}
+              className="min-h-[30px] px-2 py-1 bg-red-500/15 hover:bg-red-600 hover:text-white border border-red-500/40 text-red-300 rounded-lg font-semibold flex items-center gap-1 cursor-pointer shrink-0 transition-colors"
+            >
+              <Trash2 className="w-3 h-3" />
+              <span>Futa Watermark</span>
+            </button>
+          )}
+          {hasColorEffect && onClearColorEffect && (
+            <button
+              onClick={onClearColorEffect}
+              className="min-h-[30px] px-2 py-1 bg-red-500/15 hover:bg-red-600 hover:text-white border border-red-500/40 text-red-300 rounded-lg font-semibold flex items-center gap-1 cursor-pointer shrink-0 transition-colors"
+            >
+              <Trash2 className="w-3 h-3" />
+              <span>Ondoa Athari</span>
+            </button>
+          )}
+          {onAddVerifiedBadge && (
+            <button
+              onClick={() => onAddVerifiedBadge('#1d9bf0')}
+              className="min-h-[30px] px-2.5 py-1 bg-sky-500/15 hover:bg-sky-500/25 border border-sky-500/40 text-sky-300 rounded-lg font-semibold flex items-center gap-1 cursor-pointer transition-colors shrink-0"
+            >
+              <BadgeCheck className="w-3.5 h-3.5 text-sky-400" />
+              <span>Verified ✓</span>
+            </button>
+          )}
+        </div>
       </div>
     );
   }
@@ -110,19 +224,119 @@ export const PropertyToolbar: React.FC<PropertyToolbarProps> = React.memo(({
               ? 'Beji'
               : 'QR Code';
 
+  const TEXT_SIZE_PRESETS = [
+    { size: 14, label: '14 · Kidogo Sana' },
+    { size: 18, label: '18 · Maelezo' },
+    { size: 24, label: '24 · Kawaida' },
+    { size: 32, label: '32 · Kichwa Kidogo' },
+    { size: 44, label: '44 · Kichwa Kati' },
+    { size: 56, label: '56 · Habari' },
+    { size: 72, label: '72 · Habari Kuu' },
+    { size: 92, label: '92 · Tangazo Kubwa' },
+    { size: 115, label: '115 · Bango Kuu' },
+    { size: 144, label: '144 · Kubwa Zaidi' }
+  ];
+
+  const updateTextSize = (targetSize: number, commit: boolean = true) => {
+    if (selectedElement.type !== 'text') return;
+    const el = selectedElement as TextElement;
+    const oldSize = Math.max(8, el.fontSize || 32);
+    const nextSize = Math.max(8, Math.min(220, Math.round(targetSize)));
+    if (nextSize > oldSize) {
+      const lineH = el.lineHeight || 1.2;
+      const scaledHeight = Math.round(el.height * (nextSize / oldSize));
+      const minLineHeight = Math.round(nextSize * lineH + 12);
+      onUpdateElement(
+        {
+          fontSize: nextSize,
+          height: Math.min(canvasHeight, Math.max(el.height, scaledHeight, minLineHeight))
+        },
+        commit
+      );
+    } else {
+      onUpdateElement({ fontSize: nextSize }, commit);
+    }
+  };
+
+  const stepTextSize = (direction: 1 | -1) => {
+    if (selectedElement.type !== 'text') return;
+    const cur = (selectedElement as TextElement).fontSize || 32;
+    const delta =
+      direction > 0
+        ? cur >= 64
+          ? 8
+          : cur >= 28
+            ? 4
+            : 2
+        : cur > 68
+          ? -8
+          : cur > 30
+            ? -4
+            : -2;
+    updateTextSize(cur + delta, true);
+  };
+
   return (
     <>
       {/* MOBILE CONTEXTUAL QUICK BAR (Fits 100% inside mobile screen, zero cutoff) */}
       <div className="flex md:hidden items-center justify-between gap-1.5 px-2.5 py-1.5 bg-neutral-900 border-b border-neutral-800 text-xs text-neutral-200 z-20 shrink-0 w-full">
-        <div className="flex items-center gap-1.5 min-w-0">
+        <div className="flex items-center gap-1 min-w-0 overflow-x-auto scrollbar-none">
           {selectedElement.type === 'text' && onRequestEditText && (
             <button
               onClick={() => onRequestEditText(selectedElement.id)}
-              className="min-h-[34px] px-2.5 py-1 bg-amber-400 hover:bg-amber-300 text-black font-bold rounded-lg text-[11px] flex items-center gap-1 cursor-pointer shrink-0"
+              className="min-h-[34px] px-2 py-1 bg-amber-400 hover:bg-amber-300 text-black font-bold rounded-lg text-[11px] flex items-center gap-1 cursor-pointer shrink-0"
             >
               <Edit3 className="w-3.5 h-3.5" />
               <span>Andika</span>
             </button>
+          )}
+          {selectedElement.type === 'text' && (
+            <div className="min-h-[34px] flex items-center bg-neutral-800 border border-neutral-700 rounded-lg px-0.5 shrink-0">
+              <button
+                type="button"
+                onClick={() => stepTextSize(-1)}
+                className="w-7 h-7 flex items-center justify-center text-[11px] font-bold text-neutral-200 hover:bg-neutral-700 rounded cursor-pointer"
+                title="Punguza ukubwa wa maandishi"
+              >
+                A-
+              </button>
+              <select
+                value={
+                  TEXT_SIZE_PRESETS.some(
+                    (p) => p.size === ((selectedElement as TextElement).fontSize || 32)
+                  )
+                    ? (selectedElement as TextElement).fontSize || 32
+                    : 'custom'
+                }
+                onChange={(e) => {
+                  const val = Number(e.target.value);
+                  if (!Number.isNaN(val) && val > 0) updateTextSize(val, true);
+                }}
+                className="bg-transparent text-amber-300 font-mono text-[11px] font-bold px-1 py-1 focus:outline-none cursor-pointer max-w-[64px]"
+                title="Chagua ukubwa wa maandishi"
+              >
+                {!TEXT_SIZE_PRESETS.some(
+                  (p) => p.size === ((selectedElement as TextElement).fontSize || 32)
+                ) && (
+                  <option value="custom" className="bg-neutral-900 text-white">
+                    {(selectedElement as TextElement).fontSize || 32}px
+                  </option>
+                )}
+                {TEXT_SIZE_PRESETS.map((p) => (
+                  <option key={p.size} value={p.size} className="bg-neutral-900 text-white">
+                    {p.label}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={() => stepTextSize(1)}
+                className="w-7 h-7 flex items-center justify-center text-[11px] font-bold text-amber-300 hover:bg-neutral-700 rounded cursor-pointer"
+                title="Ongeza ukubwa wa maandishi"
+              >
+                A+
+              </button>
+            </div>
           )}
           {selectedElement.type === 'chart' && onOpenChartModal && (
             <button
@@ -132,6 +346,13 @@ export const PropertyToolbar: React.FC<PropertyToolbarProps> = React.memo(({
               <Edit3 className="w-3.5 h-3.5" />
               <span>Takwimu</span>
             </button>
+          )}
+          {(selectedElement.type === 'image' || selectedElement.type === 'shape') && (
+            <label className="min-h-[34px] px-2.5 py-1 bg-amber-400 hover:bg-amber-300 text-black font-bold rounded-lg text-[11px] flex items-center gap-1 cursor-pointer shrink-0">
+              <Upload className="w-3.5 h-3.5" />
+              <span>{selectedElement.type === 'image' ? 'Badili Picha' : 'Weka Picha'}</span>
+              <input type="file" accept="image/*" onChange={handleElementPhotoUpload} className="hidden" />
+            </label>
           )}
 
           <button
@@ -168,10 +389,12 @@ export const PropertyToolbar: React.FC<PropertyToolbarProps> = React.memo(({
           </button>
           <button
             onClick={() => onDeleteElement(selectedElement.id)}
-            className="min-h-[34px] min-w-[34px] flex items-center justify-center rounded-lg bg-neutral-800 border border-red-900/60 text-red-400 cursor-pointer"
+            className="min-h-[34px] px-2.5 py-1 flex items-center justify-center gap-1 rounded-lg bg-red-500/20 hover:bg-red-600 border border-red-500/50 text-red-200 font-bold text-[11px] cursor-pointer transition-colors"
             aria-label="Futa"
+            title="Futa kipengele hiki"
           >
             <Trash2 className="w-3.5 h-3.5" />
+            <span>Futa</span>
           </button>
         </div>
       </div>
@@ -179,7 +402,7 @@ export const PropertyToolbar: React.FC<PropertyToolbarProps> = React.memo(({
       {/* MOBILE WRAPPING INSPECTOR SHEET (Zero horizontal overflow, thumb-friendly grids) */}
       {mobileInspectorOpen && (
         <div
-          className="md:hidden fixed inset-0 bottom-16 z-35 flex flex-col justify-end overscroll-none"
+          className="md:hidden fixed inset-0 bottom-[104px] z-35 flex flex-col justify-end overscroll-none"
           onClick={() => setMobileInspectorOpen(false)}
         >
           <div className="flex-1 bg-black/50 backdrop-blur-xs" />
@@ -226,23 +449,87 @@ export const PropertyToolbar: React.FC<PropertyToolbarProps> = React.memo(({
                       </select>
                     </div>
                     <div>
-                      <span className="text-[10px] text-neutral-400 block mb-1">Ukubwa &amp; Rangi</span>
-                      <div className="flex items-center gap-1.5">
-                        <input
-                          type="number"
-                          value={(selectedElement as TextElement).fontSize || 32}
-                          onChange={(e) =>
-                            onUpdateElement({ fontSize: Number(e.target.value) || 12 }, false)
-                          }
-                          className="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-2 py-2 text-xs text-white font-mono text-center"
-                        />
+                      <span className="text-[10px] text-neutral-400 block mb-1">Rangi ya Maandishi</span>
+                      <div className="flex items-center gap-2">
                         <input
                           type="color"
                           value={(selectedElement as TextElement).color || '#ffffff'}
                           onChange={(e) => onUpdateElement({ color: e.target.value }, false)}
-                          className="w-9 h-9 rounded-lg cursor-pointer bg-neutral-800 border border-neutral-700 p-0.5 shrink-0"
+                          className="w-10 h-9 rounded-lg cursor-pointer bg-neutral-800 border border-neutral-700 p-0.5 shrink-0"
                         />
+                        <span className="font-mono text-[11px] text-neutral-300">
+                          {(selectedElement as TextElement).color || '#ffffff'}
+                        </span>
                       </div>
+                    </div>
+                  </div>
+
+                  {/* Mobile Ukubwa wa Maandishi: Slider + Steppers + Habari/Tangazo Presets */}
+                  <div className="flex flex-col gap-2 bg-neutral-900/70 border border-neutral-700/70 rounded-xl p-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[11px] font-semibold text-neutral-300">
+                        Ukubwa wa Maandishi
+                      </span>
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => stepTextSize(-1)}
+                          className="w-8 h-7 rounded-lg bg-neutral-800 border border-neutral-700 text-white font-bold text-xs flex items-center justify-center cursor-pointer"
+                        >
+                          -
+                        </button>
+                        <input
+                          type="number"
+                          min={8}
+                          max={220}
+                          value={(selectedElement as TextElement).fontSize || 32}
+                          onChange={(e) => updateTextSize(Number(e.target.value) || 12, false)}
+                          className="w-12 h-7 bg-neutral-800 border border-neutral-700 rounded-lg text-xs text-amber-300 font-mono font-bold text-center"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => stepTextSize(1)}
+                          className="w-8 h-7 rounded-lg bg-neutral-800 border border-neutral-700 text-amber-300 font-bold text-xs flex items-center justify-center cursor-pointer"
+                        >
+                          +
+                        </button>
+                      </div>
+                    </div>
+
+                    <input
+                      type="range"
+                      min={10}
+                      max={180}
+                      value={Math.min(180, (selectedElement as TextElement).fontSize || 32)}
+                      onChange={(e) => updateTextSize(Number(e.target.value), false)}
+                      className="w-full accent-amber-400"
+                    />
+
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {[
+                        { size: 16, label: 'Ndogo (16)' },
+                        { size: 24, label: 'Kawaida (24)' },
+                        { size: 38, label: 'Kichwa (38)' },
+                        { size: 56, label: 'Habari (56)' },
+                        { size: 80, label: 'Tangazo (80)' },
+                        { size: 112, label: 'Kubwa (112)' }
+                      ].map((p) => {
+                        const isCur = ((selectedElement as TextElement).fontSize || 32) === p.size;
+                        return (
+                          <button
+                            key={p.size}
+                            type="button"
+                            onClick={() => updateTextSize(p.size, true)}
+                            className={`py-1.5 px-1.5 rounded-lg border text-[10px] font-bold cursor-pointer transition-colors ${
+                              isCur
+                                ? 'bg-amber-400 text-black border-amber-400'
+                                : 'bg-neutral-800 border-neutral-700 text-neutral-300 hover:border-amber-400/50'
+                            }`}
+                          >
+                            {p.label}
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
 
@@ -384,6 +671,40 @@ export const PropertyToolbar: React.FC<PropertyToolbarProps> = React.memo(({
               {/* Mobile Shape Inspector */}
               {selectedElement.type === 'shape' && (
                 <div className="flex flex-col gap-2.5 p-3 bg-neutral-800/50 rounded-xl border border-neutral-800">
+                  {((selectedElement as ShapeElement).shapeType === 'verified-badge' ||
+                    (selectedElement as ShapeElement).shapeType === 'seal') && (
+                    <div className="flex flex-col gap-1.5 pb-2 border-b border-neutral-800">
+                      <span className="text-[10px] font-bold text-sky-400 uppercase tracking-wider flex items-center gap-1">
+                        <BadgeCheck className="w-3.5 h-3.5" />
+                        <span>Rangi ya Verification Badge</span>
+                      </span>
+                      <div className="grid grid-cols-5 gap-1.5">
+                        {[
+                          { label: 'Bluu', col: '#1d9bf0' },
+                          { label: 'Pink', col: '#ec4899' },
+                          { label: 'Dhahabu', col: '#eab308' },
+                          { label: 'Kijani', col: '#22c55e' },
+                          { label: 'Nyeusi', col: '#0f172a' }
+                        ].map((vb) => (
+                          <button
+                            key={vb.col}
+                            onClick={() => onUpdateElement({ fillColor: vb.col, opacity: 1 })}
+                            className="py-1.5 rounded-lg border border-neutral-700 text-[10px] font-bold text-white cursor-pointer"
+                            style={{ backgroundColor: vb.col }}
+                          >
+                            {vb.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <label className="w-full py-2 px-3 bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 hover:border-amber-400 rounded-lg text-xs font-bold text-amber-300 flex items-center justify-center gap-1.5 cursor-pointer">
+                    <Upload className="w-3.5 h-3.5" />
+                    <span>Weka Picha Ndani ya Umbo Hili</span>
+                    <input type="file" accept="image/*" onChange={handleElementPhotoUpload} className="hidden" />
+                  </label>
+
                   <div className="grid grid-cols-2 gap-2">
                     <label className="flex items-center justify-between bg-neutral-800 border border-neutral-700 rounded-lg px-2.5 py-2">
                       <span className="text-[11px] text-neutral-300">Rangi Ndani</span>
@@ -463,6 +784,52 @@ export const PropertyToolbar: React.FC<PropertyToolbarProps> = React.memo(({
               {/* Mobile Image Inspector */}
               {selectedElement.type === 'image' && (
                 <div className="flex flex-col gap-2.5 p-3 bg-neutral-800/50 rounded-xl border border-neutral-800">
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="py-2 px-2.5 bg-amber-400 hover:bg-amber-300 text-black font-bold rounded-lg text-xs flex items-center justify-center gap-1.5 cursor-pointer">
+                      <Upload className="w-3.5 h-3.5" />
+                      <span>Pakia Picha Mpya</span>
+                      <input type="file" accept="image/*" onChange={handleElementPhotoUpload} className="hidden" />
+                    </label>
+                    <button
+                      onClick={() => {
+                        const imgEl = selectedElement as ImageElement;
+                        const isCircle = (imgEl.borderRadius ?? 0) >= 200;
+                        if (isCircle) {
+                          onUpdateElement({ borderRadius: 16 });
+                        } else {
+                          const sq = Math.max(80, Math.min(imgEl.width, imgEl.height));
+                          onUpdateElement({
+                            borderRadius: 999,
+                            width: sq,
+                            height: sq
+                          });
+                        }
+                      }}
+                      className="py-2 px-2.5 bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 text-white font-semibold rounded-lg text-xs cursor-pointer"
+                    >
+                      {(selectedElement as ImageElement).borderRadius &&
+                      (selectedElement as ImageElement).borderRadius! >= 200
+                        ? 'Fanya Mraba'
+                        : 'Fanya Duara (◯)'}
+                    </button>
+                  </div>
+
+                  {onChangeBackground && (
+                    <button
+                      onClick={() =>
+                        onChangeBackground({
+                          type: 'image',
+                          imageUrl: (selectedElement as ImageElement).src,
+                          overlayOpacity: 0.2
+                        })
+                      }
+                      className="py-2 px-2.5 bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 text-amber-300 font-semibold rounded-lg text-[11px] flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      <ImageIcon className="w-3.5 h-3.5" />
+                      <span>Weka Picha Hii Kama Mandhari (Background)</span>
+                    </button>
+                  )}
+
                   <div>
                     <span className="text-[10px] font-semibold text-neutral-400 uppercase tracking-wider block mb-1.5">
                       Athari za Rangi ya Picha (1-Tap):
@@ -526,7 +893,7 @@ export const PropertyToolbar: React.FC<PropertyToolbarProps> = React.memo(({
                     {
                       label: 'Pembe',
                       min: 0,
-                      max: 80,
+                      max: 500,
                       val: (selectedElement as ImageElement).borderRadius ?? 0,
                       key: 'borderRadius'
                     }
@@ -771,6 +1138,29 @@ export const PropertyToolbar: React.FC<PropertyToolbarProps> = React.memo(({
                   </button>
                 </div>
               </div>
+
+              <div className="grid grid-cols-2 gap-2 pt-1">
+                <button
+                  onClick={() => {
+                    onDuplicateElement(selectedElement.id);
+                    setMobileInspectorOpen(false);
+                  }}
+                  className="py-2.5 px-3 bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 rounded-xl text-xs font-bold text-neutral-100 flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <Copy className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Nakili Kipengele</span>
+                </button>
+                <button
+                  onClick={() => {
+                    onDeleteElement(selectedElement.id);
+                    setMobileInspectorOpen(false);
+                  }}
+                  className="py-2.5 px-3 bg-red-500/20 hover:bg-red-600 border border-red-500/50 rounded-xl text-xs font-bold text-red-200 flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Futa Kipengele</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -806,34 +1196,57 @@ export const PropertyToolbar: React.FC<PropertyToolbarProps> = React.memo(({
                 <option value="Bricolage Grotesque">Bricolage</option>
               </select>
 
-              {/* Font Size */}
+              {/* Font Size: Quick Presets + Smart Steppers */}
               <div className="flex items-center gap-1 bg-neutral-800 rounded border border-neutral-700 px-1 py-0.5">
                 <button
-                  onClick={() => {
-                    const s = (selectedElement as TextElement).fontSize || 32;
-                    onUpdateElement({ fontSize: Math.max(8, s - 2) });
-                  }}
-                  className="w-5 h-5 flex items-center justify-center hover:bg-neutral-700 rounded text-neutral-300 cursor-pointer"
+                  type="button"
+                  onClick={() => stepTextSize(-1)}
+                  className="w-5 h-5 flex items-center justify-center hover:bg-neutral-700 rounded text-neutral-300 font-bold cursor-pointer"
+                  title="Punguza Ukubwa"
                 >
                   -
                 </button>
                 <input
                   type="number"
+                  min={8}
+                  max={220}
                   value={(selectedElement as TextElement).fontSize || 32}
-                  onChange={(e) =>
-                    onUpdateElement({ fontSize: Number(e.target.value) || 12 }, false)
-                  }
+                  onChange={(e) => updateTextSize(Number(e.target.value) || 12, false)}
                   className="w-10 bg-transparent text-center text-white focus:outline-none font-mono text-xs"
+                  title="Andika namba ya ukubwa wa maandishi"
                 />
                 <button
-                  onClick={() => {
-                    const s = (selectedElement as TextElement).fontSize || 32;
-                    onUpdateElement({ fontSize: Math.min(200, s + 2) });
-                  }}
-                  className="w-5 h-5 flex items-center justify-center hover:bg-neutral-700 rounded text-neutral-300 cursor-pointer"
+                  type="button"
+                  onClick={() => stepTextSize(1)}
+                  className="w-5 h-5 flex items-center justify-center hover:bg-neutral-700 rounded text-amber-300 font-bold cursor-pointer"
+                  title="Ongeza Ukubwa"
                 >
                   +
                 </button>
+                <select
+                  value={
+                    TEXT_SIZE_PRESETS.some(
+                      (p) => p.size === ((selectedElement as TextElement).fontSize || 32)
+                    )
+                      ? (selectedElement as TextElement).fontSize || 32
+                      : ''
+                  }
+                  onChange={(e) => {
+                    const val = Number(e.target.value);
+                    if (!Number.isNaN(val) && val > 0) updateTextSize(val, true);
+                  }}
+                  className="bg-neutral-900 border-l border-neutral-700 text-amber-300 text-[11px] font-semibold px-1.5 py-0.5 rounded-r focus:outline-none cursor-pointer max-w-28"
+                  title="Chagua ukubwa wa haraka (Habari / Tangazo / Maelezo)"
+                >
+                  <option value="" disabled>
+                    Ukubwa...
+                  </option>
+                  {TEXT_SIZE_PRESETS.map((p) => (
+                    <option key={p.size} value={p.size} className="bg-neutral-900 text-white">
+                      {p.label}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               {/* Text Color */}
@@ -1068,12 +1481,63 @@ export const PropertyToolbar: React.FC<PropertyToolbarProps> = React.memo(({
               >
                 Kivuli
               </button>
+
+              {((selectedElement as ShapeElement).shapeType === 'verified-badge' ||
+                (selectedElement as ShapeElement).shapeType === 'seal') && (
+                <div className="flex items-center gap-1 bg-neutral-800 rounded border border-neutral-700 px-1.5 py-1">
+                  {['#1d9bf0', '#ec4899', '#eab308', '#22c55e'].map((col) => (
+                    <button
+                      key={col}
+                      onClick={() => onUpdateElement({ fillColor: col, opacity: 1 })}
+                      className="w-4 h-4 rounded-full border border-white/30 cursor-pointer"
+                      style={{ backgroundColor: col }}
+                      title="Rangi ya Verified Badge"
+                    />
+                  ))}
+                </div>
+              )}
+
+              <label className="px-2 py-1 bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 hover:border-amber-400 text-amber-300 font-semibold rounded text-[11px] flex items-center gap-1 cursor-pointer">
+                <Upload className="w-3 h-3" />
+                <span>Weka Picha</span>
+                <input type="file" accept="image/*" onChange={handleElementPhotoUpload} className="hidden" />
+              </label>
             </div>
           )}
 
           {/* IMAGE CONTROLS */}
           {selectedElement.type === 'image' && (
             <div className="flex items-center gap-2 shrink-0">
+              <label className="px-2.5 py-1 bg-amber-400 hover:bg-amber-300 text-black font-bold rounded text-xs flex items-center gap-1.5 cursor-pointer shrink-0 shadow-sm">
+                <Upload className="w-3.5 h-3.5" />
+                <span>Badili Picha</span>
+                <input type="file" accept="image/*" onChange={handleElementPhotoUpload} className="hidden" />
+              </label>
+
+              <button
+                onClick={() => {
+                  const imgEl = selectedElement as ImageElement;
+                  const isCircle = (imgEl.borderRadius ?? 0) >= 200;
+                  if (isCircle) {
+                    onUpdateElement({ borderRadius: 16 });
+                  } else {
+                    const sq = Math.max(80, Math.min(imgEl.width, imgEl.height));
+                    onUpdateElement({
+                      borderRadius: 999,
+                      width: sq,
+                      height: sq
+                    });
+                  }
+                }}
+                className="px-2 py-1 rounded border border-neutral-700 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-[11px] font-semibold cursor-pointer"
+                title="Geuza Duara (◯ Avatar) au Mraba"
+              >
+                {(selectedElement as ImageElement).borderRadius &&
+                (selectedElement as ImageElement).borderRadius! >= 200
+                  ? 'Mraba'
+                  : 'Duara (◯)'}
+              </button>
+
               <select
                 value=""
                 onChange={(e) => {
@@ -1173,7 +1637,7 @@ export const PropertyToolbar: React.FC<PropertyToolbarProps> = React.memo(({
                 <input
                   type="range"
                   min="0"
-                  max="80"
+                  max="500"
                   value={(selectedElement as ImageElement).borderRadius ?? 0}
                   onChange={(e) =>
                     onUpdateElement({ borderRadius: Number(e.target.value) }, false)
@@ -1443,10 +1907,11 @@ export const PropertyToolbar: React.FC<PropertyToolbarProps> = React.memo(({
           {/* Delete */}
           <button
             onClick={() => onDeleteElement(selectedElement.id)}
-            className="p-1.5 rounded border border-neutral-700 text-red-400 hover:bg-red-950/60 hover:border-red-500 transition-colors cursor-pointer"
-            title="Futa (Delete)"
+            className="px-2.5 py-1 flex items-center gap-1 rounded bg-red-500/15 border border-red-500/45 text-red-300 hover:bg-red-600 hover:text-white hover:border-red-500 font-bold text-[11px] transition-colors cursor-pointer"
+            title="Futa kipengele hiki (Delete / Backspace)"
           >
             <Trash2 className="w-3.5 h-3.5" />
+            <span>Futa</span>
           </button>
         </div>
       </div>

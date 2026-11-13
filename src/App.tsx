@@ -10,24 +10,35 @@ import { FirebaseHostingModal } from './components/FirebaseHostingModal';
 import { ChartDataModal } from './components/ChartDataModal';
 import { HelpModal } from './components/HelpModal';
 import { LoadingScreen } from './components/LoadingScreen';
+import { PWAInstallBanner, OfflineIndicator } from './components/PWAInstallBanner';
+import {
+  NewCanvasModal,
+  SaveAsTemplateModal,
+  LayersModal
+} from './components/StudioTemplateModals';
 import {
   PosterProject,
   PosterElement,
   TextElement,
+  ImageElement,
   ChartElement,
   ChartType,
   PosterTemplate,
   PosterBackground,
   ShapeType,
+  ShapeElement,
+  TemplateCategory,
   ColorEffectPreset,
   WatermarkConfig
 } from './types/poster';
 import { DEFAULT_TEMPLATES } from './data/defaultTemplates';
+import { TEMPLATE_CATEGORY_FILTERS } from './data/templates1000';
 import { SHAPES_100_MAP } from './data/shapes100';
 import { DEFAULT_WATERMARK } from './data/colorEffects';
 
 const LOCAL_STORAGE_SAVED_KEY = 'malosha_saved_projects';
 const LOCAL_STORAGE_CURRENT_KEY = 'malosha_current_project';
+const LOCAL_STORAGE_CUSTOM_TEMPLATES_KEY = 'malosha_custom_templates';
 
 export default function App() {
   const initialTemplate = DEFAULT_TEMPLATES[0];
@@ -73,6 +84,7 @@ export default function App() {
 
   // Sidebar Tab & Mobile Drawer
   const [activeTab, setActiveTab] = useState<SidebarTab>('templates');
+  const [appearanceSubTab, setAppearanceSubTab] = useState<'bg' | 'effects' | 'watermark'>('bg');
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState<boolean>(false);
   const [editingTextId, setEditingTextId] = useState<string | null>(null);
   const [isStudioReady, setIsStudioReady] = useState<boolean>(false);
@@ -83,6 +95,10 @@ export default function App() {
   const [isFirebaseHostingOpen, setIsFirebaseHostingOpen] = useState<boolean>(false);
   const [isHelpOpen, setIsHelpOpen] = useState<boolean>(false);
   const [isChartModalOpen, setIsChartModalOpen] = useState<boolean>(false);
+  const [isNewBlankModalOpen, setIsNewBlankModalOpen] = useState<boolean>(false);
+  const [isSaveAsTemplateOpen, setIsSaveAsTemplateOpen] = useState<boolean>(false);
+  const [isLayersModalOpen, setIsLayersModalOpen] = useState<boolean>(false);
+  const [studioNotice, setStudioNotice] = useState<{ message: string; canUndo?: boolean } | null>(null);
 
   // Refs for zero-lag callbacks & debounced persistence
   const projectRef = useRef<PosterProject>(project);
@@ -107,6 +123,16 @@ export default function App() {
       const str =
         localStorage.getItem(LOCAL_STORAGE_SAVED_KEY) ||
         localStorage.getItem('canvaposter_saved_projects');
+      return str ? JSON.parse(str) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  // Custom user-designed templates collection in LocalStorage
+  const [customTemplates, setCustomTemplates] = useState<PosterTemplate[]>(() => {
+    try {
+      const str = localStorage.getItem(LOCAL_STORAGE_CUSTOM_TEMPLATES_KEY);
       return str ? JSON.parse(str) : [];
     } catch {
       return [];
@@ -215,34 +241,6 @@ export default function App() {
     }
   }, [scheduleAutoSave]);
 
-  // Global Keyboard Shortcuts
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement;
-      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
-
-      if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
-        e.preventDefault();
-        if (e.shiftKey) {
-          handleRedo();
-        } else {
-          handleUndo();
-        }
-      } else if ((e.ctrlKey || e.metaKey) && e.key === 'y') {
-        e.preventDefault();
-        handleRedo();
-      } else if (e.key === 'Delete' || e.key === 'Backspace') {
-        if (selectedId) {
-          e.preventDefault();
-          handleDeleteElement(selectedId);
-        }
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleUndo, handleRedo, selectedId]);
-
   // Fit to screen calculation (mobile vs desktop)
   const handleFitToScreen = useCallback(() => {
     const cur = projectRef.current;
@@ -251,7 +249,7 @@ export default function App() {
       ? Math.max(240, window.innerWidth - 28)
       : Math.max(320, window.innerWidth - 400);
     const availableH = isMobile
-      ? Math.max(220, window.innerHeight - 265)
+      ? Math.max(200, window.innerHeight - 305)
       : Math.max(300, window.innerHeight - 170);
     const scaleW = availableW / cur.width;
     const scaleH = availableH / cur.height;
@@ -416,17 +414,55 @@ export default function App() {
     [pushState]
   );
 
+  const noticeTimerRef = useRef<number | null>(null);
+  const showNotice = useCallback((message: string, canUndo: boolean = false) => {
+    if (noticeTimerRef.current !== null) {
+      window.clearTimeout(noticeTimerRef.current);
+    }
+    setStudioNotice({ message, canUndo });
+    noticeTimerRef.current = window.setTimeout(() => {
+      noticeTimerRef.current = null;
+      setStudioNotice(null);
+    }, canUndo ? 4500 : 3400);
+  }, []);
+
   const handleDeleteElement = useCallback(
     (id: string) => {
       const cur = projectRef.current;
+      if (!cur.elements.some((el) => el.id === id)) return;
       const newElements = cur.elements.filter((el) => el.id !== id);
       const newProject = { ...cur, elements: newElements, updatedAt: Date.now() };
-      setSelectedId(null);
-      setEditingTextId(null);
+      if (selectedIdRef.current === id) setSelectedId(null);
+      if (editingTextIdRef.current === id) setEditingTextId(null);
       pushState(newProject);
+      showNotice('Kipengele kimefutwa', true);
     },
-    [pushState]
+    [pushState, showNotice]
   );
+
+  const handleDeleteMultipleElements = useCallback(
+    (ids: string[]) => {
+      if (ids.length === 0) return;
+      const idSet = new Set(ids);
+      const cur = projectRef.current;
+      const newElements = cur.elements.filter((el) => !idSet.has(el.id));
+      const newProject = { ...cur, elements: newElements, updatedAt: Date.now() };
+      if (selectedIdRef.current && idSet.has(selectedIdRef.current)) setSelectedId(null);
+      if (editingTextIdRef.current && idSet.has(editingTextIdRef.current)) setEditingTextId(null);
+      pushState(newProject);
+      showNotice(`Vipengele ${ids.length} vimefutwa`, true);
+    },
+    [pushState, showNotice]
+  );
+
+  const handleClearAllElements = useCallback(() => {
+    const cur = projectRef.current;
+    if (cur.elements.length === 0) return;
+    setSelectedId(null);
+    setEditingTextId(null);
+    pushState({ ...cur, elements: [], updatedAt: Date.now() });
+    showNotice('Vipengele vyote vimefutwa', true);
+  }, [pushState, showNotice]);
 
   const handleDuplicateElement = useCallback(
     (id: string) => {
@@ -449,6 +485,56 @@ export default function App() {
     },
     [pushState]
   );
+
+  // Global Keyboard Shortcuts (Undo, Redo, Duplicate, Delete, Nudge)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (
+        target.tagName === 'INPUT' ||
+        target.tagName === 'TEXTAREA' ||
+        target.tagName === 'SELECT'
+      ) {
+        return;
+      }
+
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) {
+          handleRedo();
+        } else {
+          handleUndo();
+        }
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
+        e.preventDefault();
+        handleRedo();
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') {
+        if (selectedIdRef.current) {
+          e.preventDefault();
+          handleDuplicateElement(selectedIdRef.current);
+        }
+      } else if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (selectedIdRef.current && !editingTextIdRef.current) {
+          e.preventDefault();
+          handleDeleteElement(selectedIdRef.current);
+        }
+      } else if (
+        selectedIdRef.current &&
+        ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)
+      ) {
+        const sel = projectRef.current.elements.find((el) => el.id === selectedIdRef.current);
+        if (!sel || sel.isLocked) return;
+        e.preventDefault();
+        const step = e.shiftKey ? 10 : 1;
+        const dx = e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0;
+        const dy = e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0;
+        handleUpdateElement({ x: sel.x + dx, y: sel.y + dy }, false);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleUndo, handleRedo, handleDeleteElement, handleDuplicateElement, handleUpdateElement]);
 
   const handleBringForward = useCallback(
     (id: string) => {
@@ -599,7 +685,7 @@ export default function App() {
   );
 
   const handleAddImage = useCallback(
-    (src: string, w: number = 400, h: number = 300) => {
+    (src: string, w: number = 400, h: number = 300, extra?: Partial<ImageElement>) => {
       const cur = projectRef.current;
       const newEl: PosterElement = {
         id: `img_${Date.now()}`,
@@ -611,10 +697,110 @@ export default function App() {
         height: h,
         borderRadius: 16,
         rotation: 0,
-        opacity: 1
+        opacity: 1,
+        ...extra
       };
       pushState({ ...cur, elements: [...cur.elements, newEl] });
       setSelectedId(newEl.id);
+    },
+    [pushState]
+  );
+
+  const handleAddTextCard = useCallback(
+    (opts: {
+      title: string;
+      body: string;
+      cardBg: string;
+      textColor: string;
+      accentColor: string;
+      borderRadius: number;
+      hasAccentBar?: boolean;
+    }) => {
+      const cur = projectRef.current;
+      const cardW = Math.min(Math.round(cur.width * 0.84), 760);
+      const cardH = Math.min(Math.round(cur.height * 0.34), 340);
+      const cardX = Math.round(cur.width / 2 - cardW / 2);
+      const cardY = Math.round(cur.height / 2 - cardH / 2);
+      const ts = Date.now();
+
+      const cardBox: ShapeElement = {
+        id: `card_box_${ts}`,
+        type: 'shape',
+        shapeType: 'rectangle',
+        x: cardX,
+        y: cardY,
+        width: cardW,
+        height: cardH,
+        fillColor: opts.cardBg,
+        borderRadius: opts.borderRadius,
+        shadowColor: 'rgba(0,0,0,0.28)',
+        shadowBlur: 22,
+        rotation: 0,
+        opacity: 1
+      };
+
+      const newElements: PosterElement[] = [cardBox];
+
+      if (opts.hasAccentBar !== false) {
+        newElements.push({
+          id: `card_accent_${ts}`,
+          type: 'shape',
+          shapeType: 'rectangle',
+          x: cardX + 24,
+          y: cardY + 26,
+          width: 8,
+          height: cardH - 52,
+          fillColor: opts.accentColor,
+          borderRadius: 4,
+          rotation: 0,
+          opacity: 1
+        });
+      }
+
+      const contentLeft = cardX + (opts.hasAccentBar !== false ? 52 : 34);
+      const contentW = cardW - (opts.hasAccentBar !== false ? 84 : 68);
+
+      const titleEl: TextElement = {
+        id: `card_title_${ts}`,
+        type: 'text',
+        text: opts.title || 'KICHWA CHA KADI',
+        x: contentLeft,
+        y: cardY + 32,
+        width: contentW,
+        height: 44,
+        fontSize: Math.max(22, Math.round(cardW * 0.04)),
+        fontFamily: 'Outfit',
+        fontWeight: 800,
+        color: opts.accentColor === opts.cardBg ? opts.textColor : opts.accentColor,
+        textAlign: 'left',
+        lineHeight: 1.2,
+        letterSpacing: 0.5,
+        rotation: 0,
+        opacity: 1
+      };
+
+      const bodyEl: TextElement = {
+        id: `card_body_${ts}`,
+        type: 'text',
+        text: opts.body || 'Andika maelezo yako hapa...',
+        x: contentLeft,
+        y: cardY + 86,
+        width: contentW,
+        height: cardH - 114,
+        fontSize: Math.max(18, Math.round(cardW * 0.032)),
+        fontFamily: 'Plus Jakarta Sans',
+        fontWeight: 600,
+        color: opts.textColor,
+        textAlign: 'left',
+        lineHeight: 1.38,
+        letterSpacing: 0,
+        rotation: 0,
+        opacity: 1
+      };
+
+      newElements.push(titleEl, bodyEl);
+      pushState({ ...cur, elements: [...cur.elements, ...newElements] });
+      setSelectedId(bodyEl.id);
     },
     [pushState]
   );
@@ -785,6 +971,18 @@ export default function App() {
     setActiveTab(tab);
     setIsMobileDrawerOpen(true);
   }, []);
+  const handleOpenSidebarTool = useCallback(
+    (tab: SidebarTab, subTab?: 'bg' | 'effects' | 'watermark') => {
+      setActiveTab(tab);
+      if (subTab) {
+        setAppearanceSubTab(subTab);
+      }
+      if (window.innerWidth < 768) {
+        setIsMobileDrawerOpen(true);
+      }
+    },
+    []
+  );
   const handleCloseMobileDrawer = useCallback(() => setIsMobileDrawerOpen(false), []);
   const handleToggleGrid = useCallback(() => setShowGrid((prev) => !prev), []);
   const handleTitleChange = useCallback(
@@ -805,6 +1003,152 @@ export default function App() {
   const handleOpenChartModal = useCallback(() => setIsChartModalOpen(true), []);
   const handleRequestEditText = useCallback((id: string) => setEditingTextId(id), []);
 
+  const handleCreateBlankCanvas = useCallback(
+    (title: string, width: number, height: number, background: PosterBackground) => {
+      const blank: PosterProject = {
+        id: `proj_${Date.now()}`,
+        title,
+        width,
+        height,
+        background: JSON.parse(JSON.stringify(background)),
+        elements: [],
+        colorEffect: 'none',
+        watermark: projectRef.current.watermark,
+        createdAt: Date.now(),
+        updatedAt: Date.now()
+      };
+      setSelectedId(null);
+      setEditingTextId(null);
+      pushState(blank);
+      showNotice('Canvas mpya tupu ipo tayari kubuni!');
+    },
+    [pushState, showNotice]
+  );
+
+  const handleSaveAsTemplate = useCallback(
+    (titleSwahili: string, category: TemplateCategory, description: string) => {
+      const cur = projectRef.current;
+      const catLabel =
+        TEMPLATE_CATEGORY_FILTERS.find((c) => c.id === category)?.label || 'Kiolezo Changu';
+      const newTemplate: PosterTemplate = {
+        id: `custom_tpl_${Date.now()}`,
+        title: titleSwahili,
+        titleSwahili,
+        category,
+        categoryLabelSwahili: catLabel,
+        description,
+        width: cur.width,
+        height: cur.height,
+        background: JSON.parse(JSON.stringify(cur.background)),
+        elements: JSON.parse(JSON.stringify(cur.elements)),
+        colorEffect: cur.colorEffect || 'none',
+        watermark: cur.watermark ? JSON.parse(JSON.stringify(cur.watermark)) : undefined,
+        previewBadge: 'CHAKO',
+        previewAccent: '#10b981',
+        isCustom: true
+      };
+      setCustomTemplates((prev) => {
+        const next = [newTemplate, ...prev];
+        try {
+          localStorage.setItem(LOCAL_STORAGE_CUSTOM_TEMPLATES_KEY, JSON.stringify(next));
+        } catch {
+          // Ignore storage quota errors gracefully
+        }
+        return next;
+      });
+      setActiveTab('templates');
+      showNotice('Kiolezo chako kimeongezwa kwenye orodha ya Violezo!');
+    },
+    [showNotice]
+  );
+
+  const handleDeleteCustomTemplate = useCallback((id: string) => {
+    setCustomTemplates((prev) => {
+      const next = prev.filter((t) => t.id !== id);
+      try {
+        localStorage.setItem(LOCAL_STORAGE_CUSTOM_TEMPLATES_KEY, JSON.stringify(next));
+      } catch {
+        // Ignore storage errors
+      }
+      return next;
+    });
+  }, []);
+
+  const handleToggleLockElement = useCallback(
+    (id: string) => {
+      const cur = projectRef.current;
+      const updated = {
+        ...cur,
+        elements: cur.elements.map((el) =>
+          el.id === id ? ({ ...el, isLocked: !el.isLocked } as PosterElement) : el
+        ),
+        updatedAt: Date.now()
+      };
+      pushState(updated);
+    },
+    [pushState]
+  );
+
+  const handleQuickStartFromEmptyCanvas = useCallback(
+    (tab: 'text' | 'photos' | 'shapes' | 'charts' | 'logos') => {
+      setActiveTab(tab);
+      if (window.innerWidth < 768) {
+        setIsMobileDrawerOpen(true);
+      }
+    },
+    []
+  );
+
+  const handleOpenNewBlankModal = useCallback(() => setIsNewBlankModalOpen(true), []);
+  const handleOpenSaveAsTemplateModal = useCallback(() => setIsSaveAsTemplateOpen(true), []);
+  const handleOpenLayersModal = useCallback(() => setIsLayersModalOpen(true), []);
+
+  const handleAddVerifiedBadge = useCallback(
+    (color: string = '#1d9bf0') => {
+      handleAddShape('verified-badge', color);
+    },
+    [handleAddShape]
+  );
+
+  const handleReplaceSelectedWithPhoto = useCallback(
+    (src: string, asCircle?: boolean) => {
+      const selId = selectedIdRef.current;
+      if (!selId) return;
+      const sel = projectRef.current.elements.find((el) => el.id === selId);
+      if (!sel) return;
+      if (sel.type === 'image') {
+        if (asCircle) {
+          const sq = Math.max(80, Math.min(sel.width, sel.height));
+          handleUpdateElement({
+            src,
+            cropRect: undefined,
+            borderRadius: 999,
+            width: sq,
+            height: sq
+          } as Partial<PosterElement>);
+        } else {
+          handleUpdateElement({
+            src,
+            cropRect: undefined,
+            borderRadius: asCircle === false ? 12 : (sel as ImageElement).borderRadius
+          } as Partial<PosterElement>);
+        }
+      } else if (sel.type === 'shape') {
+        const sh = sel as ShapeElement;
+        const makeCircle = asCircle ?? sh.shapeType === 'circle';
+        const sq = Math.max(80, Math.min(sh.width, sh.height));
+        handleUpdateElement({
+          type: 'image',
+          src,
+          cropRect: undefined,
+          borderRadius: makeCircle ? 999 : sh.borderRadius || 12,
+          ...(makeCircle ? { width: sq, height: sq } : {})
+        } as Partial<PosterElement>);
+      }
+    },
+    [handleUpdateElement]
+  );
+
   const selectedElement = project.elements.find((el) => el.id === selectedId) || null;
   const selectedChart = selectedElement?.type === 'chart' ? (selectedElement as ChartElement) : null;
 
@@ -817,6 +1161,9 @@ export default function App() {
         onOpenFirebaseHosting={handleOpenFirebaseHosting}
         onOpenTemplatesTab={handleOpenTemplatesTab}
         onOpenHelp={handleOpenHelp}
+        onOpenSidebarTool={handleOpenSidebarTool}
+        onOpenNewBlankModal={handleOpenNewBlankModal}
+        onOpenSaveAsTemplateModal={handleOpenSaveAsTemplateModal}
       />
 
       {/* 2. Workspace Sub-Toolbar */}
@@ -837,6 +1184,10 @@ export default function App() {
         onToggleGrid={handleToggleGrid}
         isSaved={isSaved}
         onSaveToLocalStorage={handleSaveToLocalStorage}
+        onOpenNewBlankModal={handleOpenNewBlankModal}
+        onOpenSaveAsTemplateModal={handleOpenSaveAsTemplateModal}
+        onOpenLayersModal={handleOpenLayersModal}
+        elementCount={project.elements.length}
       />
 
       {/* 3. Secondary Contextual Property Toolbar */}
@@ -844,6 +1195,17 @@ export default function App() {
         selectedElement={selectedElement}
         canvasWidth={project.width}
         canvasHeight={project.height}
+        elementCount={project.elements.length}
+        hasBackgroundImage={project.background.type === 'image'}
+        hasWatermark={Boolean(project.watermark?.enabled && project.watermark.text?.trim())}
+        hasColorEffect={Boolean(project.colorEffect && project.colorEffect !== 'none')}
+        onChangeBackground={handleChangeBackground}
+        onClearWatermark={() =>
+          handleChangeWatermark({ ...(project.watermark || DEFAULT_WATERMARK), enabled: false })
+        }
+        onClearColorEffect={() => handleChangeColorEffect('none')}
+        onOpenLayersModal={handleOpenLayersModal}
+        onAddVerifiedBadge={handleAddVerifiedBadge}
         onUpdateElement={handleUpdateElement}
         onDeleteElement={handleDeleteElement}
         onDuplicateElement={handleDuplicateElement}
@@ -860,6 +1222,8 @@ export default function App() {
         <Sidebar
           activeTab={activeTab}
           onTabChange={setActiveTab}
+          appearanceSubTab={appearanceSubTab}
+          onAppearanceSubTabChange={setAppearanceSubTab}
           isMobileDrawerOpen={isMobileDrawerOpen}
           onOpenMobileDrawer={handleOpenMobileDrawer}
           onCloseMobileDrawer={handleCloseMobileDrawer}
@@ -868,6 +1232,7 @@ export default function App() {
           onAddShape={handleAddShape}
           onAddBadge={handleAddBadge}
           onAddImage={handleAddImage}
+          onAddTextCard={handleAddTextCard}
           onAddQrCode={handleAddQrCode}
           onAddChart={handleAddChart}
           onToggleGrid={handleToggleGrid}
@@ -877,6 +1242,16 @@ export default function App() {
           onChangeColorEffect={handleChangeColorEffect}
           currentWatermark={project.watermark || DEFAULT_WATERMARK}
           onChangeWatermark={handleChangeWatermark}
+          hasSelectedImageOrShape={
+            selectedElement?.type === 'image' || selectedElement?.type === 'shape'
+          }
+          onReplaceSelectedWithPhoto={handleReplaceSelectedWithPhoto}
+          onAddVerifiedBadge={handleAddVerifiedBadge}
+          customTemplates={customTemplates}
+          onOpenNewBlankModal={handleOpenNewBlankModal}
+          onOpenSaveAsTemplateModal={handleOpenSaveAsTemplateModal}
+          onDeleteCustomTemplate={handleDeleteCustomTemplate}
+          onOpenLayersModal={handleOpenLayersModal}
         />
 
         <CanvasArea
@@ -884,15 +1259,75 @@ export default function App() {
           selectedId={selectedId}
           onSelectElement={handleSelectElement}
           onUpdateElement={handleUpdateElement}
+          onDeleteElement={handleDeleteElement}
+          onDuplicateElement={handleDuplicateElement}
+          onToggleLockElement={handleToggleLockElement}
           onCommitEdit={handleCommitEdit}
           zoom={zoom}
           showGrid={showGrid}
           editingTextId={editingTextId}
           onEditingTextIdChange={setEditingTextId}
+          onQuickStartAction={handleQuickStartFromEmptyCanvas}
         />
       </div>
 
+      {/* Studio Toast Notification */}
+      {studioNotice && (
+        <div className="fixed bottom-28 md:bottom-6 left-1/2 -translate-x-1/2 z-50 bg-neutral-900 border border-emerald-500/60 text-white text-xs font-bold px-3.5 py-2 rounded-full shadow-2xl flex items-center gap-2.5">
+          <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
+          <span>{studioNotice.message}</span>
+          {studioNotice.canUndo && (
+            <button
+              type="button"
+              onClick={() => {
+                handleUndo();
+                setStudioNotice(null);
+              }}
+              className="px-2.5 py-0.5 rounded-full bg-amber-400 hover:bg-amber-300 text-black font-extrabold text-[11px] cursor-pointer transition-colors"
+            >
+              Tendua (Undo)
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Modals */}
+      <NewCanvasModal
+        isOpen={isNewBlankModalOpen}
+        onClose={() => setIsNewBlankModalOpen(false)}
+        onCreateBlankCanvas={handleCreateBlankCanvas}
+      />
+
+      <SaveAsTemplateModal
+        isOpen={isSaveAsTemplateOpen}
+        onClose={() => setIsSaveAsTemplateOpen(false)}
+        defaultTitle={project.title}
+        elementCount={project.elements.length}
+        width={project.width}
+        height={project.height}
+        onSaveTemplate={handleSaveAsTemplate}
+      />
+
+      <LayersModal
+        isOpen={isLayersModalOpen}
+        onClose={() => setIsLayersModalOpen(false)}
+        project={project}
+        selectedId={selectedId}
+        onSelectElement={handleSelectElement}
+        onBringForward={handleBringForward}
+        onSendBackward={handleSendBackward}
+        onToggleLock={handleToggleLockElement}
+        onDuplicateElement={handleDuplicateElement}
+        onDeleteElement={handleDeleteElement}
+        onDeleteMultiple={handleDeleteMultipleElements}
+        onClearAllElements={handleClearAllElements}
+        onClearBackgroundImage={() => handleChangeBackground({ type: 'color', color: '#0f172a' })}
+        onClearWatermark={() =>
+          handleChangeWatermark({ ...(project.watermark || DEFAULT_WATERMARK), enabled: false })
+        }
+        onClearColorEffect={() => handleChangeColorEffect('none')}
+      />
+
       <DownloadModal
         project={project}
         isOpen={isDownloadOpen}
@@ -920,7 +1355,7 @@ export default function App() {
           setEditingTextId(null);
           pushState(p);
         }}
-        onNewBlankProject={handleNewBlankProject}
+        onNewBlankProject={() => setIsNewBlankModalOpen(true)}
       />
 
       <ChartDataModal
@@ -936,6 +1371,10 @@ export default function App() {
       />
 
       <HelpModal isOpen={isHelpOpen} onClose={() => setIsHelpOpen(false)} />
+
+      {/* Automatic Mobile App Install Notification & Offline Indicator */}
+      <PWAInstallBanner />
+      <OfflineIndicator />
 
       {/* Branded Startup Loading Screen */}
       <LoadingScreen isReady={isStudioReady} />

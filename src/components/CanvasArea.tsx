@@ -14,17 +14,22 @@ import {
 import { drawChart } from '../utils/canvasRenderer';
 import { SHAPES_100_MAP } from '../data/shapes100';
 import { COLOR_EFFECT_MAP } from '../data/colorEffects';
+import { Trash2, Copy, Lock, Unlock, Edit3 } from 'lucide-react';
 
 interface CanvasAreaProps {
   project: PosterProject;
   selectedId: string | null;
   onSelectElement: (id: string | null) => void;
   onUpdateElement: (updated: Partial<PosterElement>, commit?: boolean) => void;
+  onDeleteElement?: (id: string) => void;
+  onDuplicateElement?: (id: string) => void;
+  onToggleLockElement?: (id: string) => void;
   onCommitEdit?: () => void;
   zoom: number;
   showGrid: boolean;
   editingTextId?: string | null;
   onEditingTextIdChange?: (id: string | null) => void;
+  onQuickStartAction?: (tab: 'text' | 'photos' | 'shapes' | 'charts' | 'logos') => void;
 }
 
 type DragMode = 'move' | 'nw' | 'ne' | 'se' | 'sw' | 'n' | 'e' | 's' | 'w' | 'rotate' | null;
@@ -34,11 +39,15 @@ export const CanvasArea: React.FC<CanvasAreaProps> = React.memo(({
   selectedId,
   onSelectElement,
   onUpdateElement,
+  onDeleteElement,
+  onDuplicateElement,
+  onToggleLockElement,
   onCommitEdit,
   zoom,
   showGrid,
   editingTextId: controlledEditingTextId,
-  onEditingTextIdChange
+  onEditingTextIdChange,
+  onQuickStartAction
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
@@ -280,7 +289,7 @@ export const CanvasArea: React.FC<CanvasAreaProps> = React.memo(({
         onSelectElement(null);
         setEditingTextId(null);
       }}
-      className="flex-1 bg-neutral-950 overflow-auto overscroll-contain flex p-4 pb-24 md:p-8 relative select-none"
+      className="flex-1 bg-neutral-950 overflow-auto overscroll-contain flex p-4 pb-32 md:p-8 relative select-none"
       style={{
         backgroundImage: showGrid
           ? 'radial-gradient(rgba(255, 255, 255, 0.1) 1px, transparent 1px)'
@@ -489,6 +498,182 @@ export const CanvasArea: React.FC<CanvasAreaProps> = React.memo(({
           />
         )}
         </div>
+
+        {/* Crisp Screen-Space Floating Action Bar on Selected Element */}
+        {selectedElement && editingTextId !== selectedElement.id && !dragMode && (() => {
+          const stageW = project.width * zoom;
+          const stageH = project.height * zoom;
+          const selLeft = selectedElement.x * zoom;
+          const selTop = selectedElement.y * zoom;
+          const selRight = (selectedElement.x + selectedElement.width) * zoom;
+          const selBottom = (selectedElement.y + selectedElement.height) * zoom;
+          const centerX = Math.max(92, Math.min(stageW - 92, (selLeft + selRight) / 2));
+          const placeBelow = selTop < 58;
+          const rawTop = placeBelow ? selBottom + 12 : selTop - 52;
+          const pillTop = Math.max(8, Math.min(stageH - 42, rawTop));
+
+          return (
+            <div
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => e.stopPropagation()}
+              style={{ left: centerX, top: pillTop }}
+              className="absolute -translate-x-1/2 z-40 flex items-center gap-1 bg-neutral-900/95 backdrop-blur-md border border-neutral-700/90 rounded-full px-1.5 py-1 shadow-[0_8px_24px_rgba(0,0,0,0.65)] max-w-[92vw] overflow-x-auto scrollbar-none"
+            >
+              {selectedElement.type === 'text' && !selectedElement.isLocked && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setEditingTextId(selectedElement.id)}
+                    className="px-2 py-1 rounded-full bg-amber-400 hover:bg-amber-300 text-black font-bold text-[11px] flex items-center gap-1 cursor-pointer transition-colors whitespace-nowrap"
+                    title="Hariri maandishi"
+                  >
+                    <Edit3 className="w-3 h-3" />
+                    <span>Andika</span>
+                  </button>
+
+                  <div className="flex items-center bg-neutral-800 border border-neutral-700 rounded-full px-0.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const el = selectedElement as TextElement;
+                        const cur = el.fontSize || 32;
+                        const next = Math.max(8, cur > 68 ? cur - 8 : cur > 30 ? cur - 4 : cur - 2);
+                        onUpdateElement({ fontSize: next });
+                      }}
+                      className="px-1.5 py-0.5 rounded-full hover:bg-neutral-700 text-neutral-200 font-bold text-[11px] cursor-pointer"
+                      title="Punguza ukubwa wa maandishi"
+                    >
+                      A-
+                    </button>
+                    <span className="px-1 text-[10px] font-mono font-bold text-amber-300 tabular-nums">
+                      {(selectedElement as TextElement).fontSize || 32}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const el = selectedElement as TextElement;
+                        const oldSize = Math.max(8, el.fontSize || 32);
+                        const next = Math.min(220, oldSize >= 64 ? oldSize + 8 : oldSize >= 28 ? oldSize + 4 : oldSize + 2);
+                        const scaledH = Math.round(el.height * (next / oldSize));
+                        const minH = Math.round(next * (el.lineHeight || 1.2) + 12);
+                        onUpdateElement({
+                          fontSize: next,
+                          height: Math.min(project.height, Math.max(el.height, scaledH, minH))
+                        });
+                      }}
+                      className="px-1.5 py-0.5 rounded-full hover:bg-neutral-700 text-amber-300 font-bold text-[11px] cursor-pointer"
+                      title="Ongeza ukubwa wa maandishi"
+                    >
+                      A+
+                    </button>
+                  </div>
+                </>
+              )}
+
+              {onToggleLockElement && selectedElement.isLocked && (
+                <button
+                  type="button"
+                  onClick={() => onToggleLockElement(selectedElement.id)}
+                  className="px-2 py-1 rounded-full bg-amber-400/20 hover:bg-amber-400/30 text-amber-300 font-bold text-[11px] flex items-center gap-1 cursor-pointer transition-colors whitespace-nowrap"
+                  title="Fungua kipengele kilichofungwa"
+                >
+                  <Lock className="w-3 h-3" />
+                  <span>Fungua</span>
+                </button>
+              )}
+
+              {onDuplicateElement && (
+                <button
+                  type="button"
+                  onClick={() => onDuplicateElement(selectedElement.id)}
+                  className="px-2 py-1 rounded-full bg-neutral-800 hover:bg-neutral-700 text-neutral-100 font-semibold text-[11px] flex items-center gap-1 cursor-pointer transition-colors whitespace-nowrap"
+                  title="Nakili kipengele hiki"
+                >
+                  <Copy className="w-3 h-3 text-sky-400" />
+                  <span className="hidden sm:inline">Nakili</span>
+                </button>
+              )}
+
+              {onToggleLockElement && !selectedElement.isLocked && (
+                <button
+                  type="button"
+                  onClick={() => onToggleLockElement(selectedElement.id)}
+                  className="p-1.5 rounded-full bg-neutral-800 hover:bg-neutral-700 text-neutral-300 hover:text-amber-300 cursor-pointer transition-colors"
+                  title="Funga kipengele (Lock)"
+                >
+                  <Unlock className="w-3 h-3" />
+                </button>
+              )}
+
+              {onDeleteElement && (
+                <button
+                  type="button"
+                  onClick={() => onDeleteElement(selectedElement.id)}
+                  className="px-2.5 py-1 rounded-full bg-red-600 hover:bg-red-500 text-white font-extrabold text-[11px] flex items-center gap-1 cursor-pointer transition-colors shadow-sm whitespace-nowrap"
+                  title="Futa kipengele hiki"
+                  aria-label="Futa kipengele"
+                >
+                  <Trash2 className="w-3 h-3" />
+                  <span>Futa</span>
+                </button>
+              )}
+            </div>
+          );
+        })()}
+
+        {/* Empty Canvas Quick-Start Studio Overlay (never affects export) */}
+        {project.elements.length === 0 && onQuickStartAction && (
+          <div className="absolute inset-0 flex items-center justify-center p-3 pointer-events-none z-20">
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className="pointer-events-auto bg-neutral-900/90 backdrop-blur-md border border-neutral-700/80 rounded-2xl p-3.5 md:p-4 shadow-2xl max-w-[300px] w-full text-center flex flex-col gap-2.5"
+            >
+              <div>
+                <div className="text-xs font-bold text-amber-400">Canvas Tupu Tayari</div>
+                <p className="text-[11px] text-neutral-300 mt-0.5">
+                  Anza kubuni kiolezo chako mwenyewe kwa kugusa chombo:
+                </p>
+              </div>
+              <div className="grid grid-cols-2 gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => onQuickStartAction('text')}
+                  className="py-2 px-2.5 rounded-lg bg-neutral-800 hover:bg-amber-400 hover:text-black text-white text-[11px] font-bold transition-colors cursor-pointer"
+                >
+                  + Maandishi
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onQuickStartAction('photos')}
+                  className="py-2 px-2.5 rounded-lg bg-neutral-800 hover:bg-amber-400 hover:text-black text-white text-[11px] font-bold transition-colors cursor-pointer"
+                >
+                  + Picha
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onQuickStartAction('shapes')}
+                  className="py-2 px-2.5 rounded-lg bg-neutral-800 hover:bg-amber-400 hover:text-black text-white text-[11px] font-bold transition-colors cursor-pointer"
+                >
+                  + Maumbo
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onQuickStartAction('charts')}
+                  className="py-2 px-2.5 rounded-lg bg-neutral-800 hover:bg-amber-400 hover:text-black text-white text-[11px] font-bold transition-colors cursor-pointer"
+                >
+                  + Grafu &amp; Chati
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={() => onQuickStartAction('logos')}
+                className="py-1.5 px-2.5 rounded-lg bg-sky-500/15 hover:bg-sky-500/25 border border-sky-500/30 text-sky-300 text-[11px] font-bold transition-colors cursor-pointer"
+              >
+                + Nembo &amp; Verified Badge ✓
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -760,6 +945,16 @@ const RenderShapeElement = React.memo<{ element: ShapeElement }>(({ element }) =
           strokeWidth={strokeWidth}
           vectorEffect="non-scaling-stroke"
         />
+        {shapeType === 'verified-badge' && (
+          <path
+            d="M 30,52 L 44,66 L 71,35"
+            fill="none"
+            stroke="#ffffff"
+            strokeWidth="10"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        )}
       </svg>
     );
   }
@@ -799,9 +994,12 @@ const RenderImageElement = React.memo<{ element: ImageElement }>(({ element }) =
   if (element.filterBlur && element.filterBlur > 0)
     filterList.push(`blur(${element.filterBlur}px)`);
 
+  const filterStr = filterList.join(' ');
+  const crop = element.cropRect;
+
   return (
     <div
-      className="w-full h-full overflow-hidden"
+      className="w-full h-full overflow-hidden relative"
       style={{
         borderRadius: `${element.borderRadius || 0}px`,
         borderColor: element.borderColor,
@@ -809,14 +1007,33 @@ const RenderImageElement = React.memo<{ element: ImageElement }>(({ element }) =
         borderStyle: element.borderWidth ? 'solid' : undefined
       }}
     >
-      <img
-        src={element.src}
-        alt={element.alt || 'Poster Element'}
-        referrerPolicy="no-referrer"
-        decoding="async"
-        className="w-full h-full object-cover pointer-events-none select-none"
-        style={{ filter: filterList.join(' ') }}
-      />
+      {crop ? (
+        <img
+          src={element.src}
+          alt={element.alt || 'Poster Element'}
+          referrerPolicy="no-referrer"
+          decoding="async"
+          className="pointer-events-none select-none max-w-none max-h-none"
+          style={{
+            position: 'absolute',
+            width: `${(100 / crop.w).toFixed(3)}%`,
+            height: `${(100 / crop.h).toFixed(3)}%`,
+            left: `${(-(crop.x / crop.w) * 100).toFixed(3)}%`,
+            top: `${(-(crop.y / crop.h) * 100).toFixed(3)}%`,
+            objectFit: 'fill',
+            filter: filterStr
+          }}
+        />
+      ) : (
+        <img
+          src={element.src}
+          alt={element.alt || 'Poster Element'}
+          referrerPolicy="no-referrer"
+          decoding="async"
+          className="w-full h-full object-cover pointer-events-none select-none"
+          style={{ filter: filterStr }}
+        />
+      )}
     </div>
   );
 });

@@ -171,7 +171,8 @@ export const SHAPES_100: ShapeDefinition[] = [
   { id: 'graduation-cap', label: 'Kofia ya Elimu', category: 'Alama & Ikoni', pathData: 'M 50,16 L 96,38 L 50,60 L 4,38 Z M 22,52 L 50,66 L 78,52 V 74 L 50,86 L 22,74 Z' },
   { id: 'book-open', label: 'Kitabu', category: 'Alama & Ikoni', pathData: 'M 6,18 C 24,12 38,16 48,24 V 88 C 38,80 24,76 6,82 Z M 94,18 C 76,12 62,16 52,24 V 88 C 62,80 76,76 94,82 Z' },
   { id: 'briefcase', label: 'Mkoba wa Kazi', category: 'Alama & Ikoni', pathData: 'M 34,12 H 66 V 26 H 92 V 88 H 8 V 26 H 34 Z M 42,18 V 26 H 58 V 18 Z' },
-  { id: 'quote-mark', label: 'Alama za Nukuu', category: 'Alama & Ikoni', pathData: 'M 10,20 H 44 V 54 C 44,74 30,86 14,88 L 10,76 C 22,72 26,64 26,54 H 10 Z M 56,20 H 90 V 54 C 90,74 76,86 60,88 L 56,76 C 68,72 72,64 72,54 H 56 Z' }
+  { id: 'quote-mark', label: 'Alama za Nukuu', category: 'Alama & Ikoni', pathData: 'M 10,20 H 44 V 54 C 44,74 30,86 14,88 L 10,76 C 22,72 26,64 26,54 H 10 Z M 56,20 H 90 V 54 C 90,74 76,86 60,88 L 56,76 C 68,72 72,64 72,54 H 56 Z' },
+  { id: 'verified-badge', label: 'Verified Badge ✓', category: 'Alama & Ikoni', pathData: star(10, 48, 39), defaultWidth: 64, defaultHeight: 64 }
 ];
 
 export const SHAPES_100_MAP: Record<string, ShapeDefinition> = Object.fromEntries(

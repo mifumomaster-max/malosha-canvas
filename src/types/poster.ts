@@ -57,6 +57,7 @@ export interface ImageElement extends BaseElement {
   filterHueRotate?: number;  // 0 to 360, default 0
   filterInvert?: number;     // 0 to 100, default 0
   objectFit?: 'cover' | 'contain';
+  cropRect?: { x: number; y: number; w: number; h: number };
 }
 
 export type BaseShapeType =
@@ -188,7 +189,8 @@ export type ColorEffectPreset =
   | 'cyber-neon'
   | 'emerald-mint'
   | 'royal-violet'
-  | 'vivid-pop';
+  | 'vivid-pop'
+  | (string & {});
 
 export interface WatermarkConfig {
   enabled: boolean;
@@ -258,4 +260,6 @@ export interface PosterTemplate {
   previewAccent?: string;
   previewBg?: string;
   previewBadge?: string;
+  isCustom?: boolean;
+  isFeaturedUpload?: boolean;
 }

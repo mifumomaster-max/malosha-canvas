@@ -6,7 +6,10 @@ import {
   ZoomOut,
   Maximize2,
   Grid,
-  Check
+  Check,
+  FilePlus2,
+  BookmarkPlus,
+  Layers
 } from 'lucide-react';
 import { CANVAS_PRESETS } from '../data/defaultTemplates';
 
@@ -27,6 +30,10 @@ interface WorkspaceToolbarProps {
   onToggleGrid: () => void;
   isSaved: boolean;
   onSaveToLocalStorage: () => void;
+  onOpenNewBlankModal?: () => void;
+  onOpenSaveAsTemplateModal?: () => void;
+  onOpenLayersModal?: () => void;
+  elementCount?: number;
 }
 
 export const WorkspaceToolbar: React.FC<WorkspaceToolbarProps> = React.memo(({
@@ -45,8 +52,13 @@ export const WorkspaceToolbar: React.FC<WorkspaceToolbarProps> = React.memo(({
   showGrid,
   onToggleGrid,
   isSaved,
-  onSaveToLocalStorage
+  onSaveToLocalStorage,
+  onOpenNewBlankModal,
+  onOpenSaveAsTemplateModal,
+  onOpenLayersModal,
+  elementCount = 0
 }) => {
+  const isPresetSize = CANVAS_PRESETS.some((p) => p.width === width && p.height === height);
   const handleDimSelect = (val: string) => {
     const [w, h] = val.split('x').map(Number);
     const found = CANVAS_PRESETS.find((p) => p.width === w && p.height === h);
@@ -79,6 +91,26 @@ export const WorkspaceToolbar: React.FC<WorkspaceToolbarProps> = React.memo(({
               <span className="text-[11px] font-semibold">Hifadhi</span>
             )}
           </button>
+          {onOpenNewBlankModal && (
+            <button
+              onClick={onOpenNewBlankModal}
+              className="min-h-[34px] md:min-h-0 flex items-center gap-1 px-2 py-1 bg-amber-400/15 hover:bg-amber-400/25 text-amber-300 rounded border border-amber-400/40 transition-colors cursor-pointer whitespace-nowrap shrink-0"
+              title="Anza kubuni bango jipya kutoka mwanzo (Blank Canvas)"
+            >
+              <FilePlus2 className="w-3.5 h-3.5" />
+              <span className="text-[11px] font-bold">Mpya</span>
+            </button>
+          )}
+          {onOpenSaveAsTemplateModal && (
+            <button
+              onClick={onOpenSaveAsTemplateModal}
+              className="hidden sm:flex min-h-[34px] md:min-h-0 items-center gap-1 px-2 py-1 bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 rounded border border-emerald-500/40 transition-colors cursor-pointer whitespace-nowrap shrink-0"
+              title="Hifadhi muundo huu kwenye orodha ya Violezo (Templates)"
+            >
+              <BookmarkPlus className="w-3.5 h-3.5" />
+              <span className="text-[11px] font-bold">+ Kiolezo</span>
+            </button>
+          )}
         </div>
 
         <div className="h-4 w-px bg-neutral-800 hidden md:block" />
@@ -125,6 +157,11 @@ export const WorkspaceToolbar: React.FC<WorkspaceToolbarProps> = React.memo(({
             className="w-full md:w-auto min-h-[34px] md:min-h-0 bg-neutral-800 border border-neutral-700 text-neutral-100 rounded px-2 md:px-2.5 py-1 text-[11px] md:text-xs focus:outline-none focus:border-amber-400 cursor-pointer font-medium truncate"
             aria-label="Ukubwa wa Bango"
           >
+            {!isPresetSize && (
+              <option value={`${width}x${height}`}>
+                Ukubwa Maalum ({width}×{height})
+              </option>
+            )}
             {CANVAS_PRESETS.map((preset) => (
               <option key={preset.id} value={`${preset.width}x${preset.height}`}>
                 {preset.labelSwahili} ({preset.width}×{preset.height})
@@ -136,8 +173,19 @@ export const WorkspaceToolbar: React.FC<WorkspaceToolbarProps> = React.memo(({
           </span>
         </div>
 
-        {/* Grid & Zoom controls */}
+        {/* Grid, Layers & Zoom controls */}
         <div className="flex items-center gap-1 md:gap-2 shrink-0">
+          {onOpenLayersModal && (
+            <button
+              onClick={onOpenLayersModal}
+              className="min-h-[34px] md:min-h-0 flex items-center gap-1 px-2 py-1 rounded border border-neutral-800 hover:bg-neutral-800 text-neutral-300 hover:text-white transition-colors cursor-pointer shrink-0"
+              title="Tabaka zote za Canvas (Layers)"
+            >
+              <Layers className="w-3.5 h-3.5 text-amber-400" />
+              <span className="text-[11px] font-semibold hidden sm:inline">Tabaka</span>
+              <span className="text-[10px] font-mono text-amber-300">{elementCount}</span>
+            </button>
+          )}
           <button
             onClick={onToggleGrid}
             className={`min-h-[34px] min-w-[34px] md:min-h-0 md:min-w-0 flex items-center justify-center p-1.5 rounded border transition-colors cursor-pointer ${

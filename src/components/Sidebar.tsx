@@ -15,12 +15,22 @@ import {
   LayoutGrid,
   Award,
   Sparkles,
-  Stamp
+  Stamp,
+  BadgeCheck,
+  FilePlus2,
+  BookmarkPlus,
+  Trash2,
+  Layers
 } from 'lucide-react';
+import { processUploadedImageFile } from '../utils/imageUpload';
 import {
   PosterTemplate,
   PosterBackground,
   TextElement,
+  ShapeElement,
+  BadgeElement,
+  ImageElement,
+  ChartElement,
   ChartType,
   ShapeType,
   ColorEffectPreset,
@@ -29,8 +39,20 @@ import {
 import { TEMPLATES_1000, TEMPLATE_CATEGORY_FILTERS } from '../data/templates1000';
 import { SHAPES_100, SHAPES_100_MAP, ShapeCategory } from '../data/shapes100';
 import { TEXT_PRESETS_100, TextPresetCategory } from '../data/textPresets100';
-import { READY_LOGOS, LOGO_EMBLEMS, buildCustomLogoDataUrl } from '../data/logos';
-import { COLOR_EFFECT_PRESETS, DEFAULT_WATERMARK } from '../data/colorEffects';
+import {
+  READY_LOGOS,
+  LOGO_EMBLEMS,
+  LOGO_CATEGORIES,
+  LOGO_PROFESSIONS,
+  LogoStyle,
+  buildCustomLogoDataUrl
+} from '../data/logos';
+import {
+  COLOR_EFFECT_PRESETS,
+  COLOR_EFFECT_MAP,
+  ColorEffectCategory,
+  DEFAULT_WATERMARK
+} from '../data/colorEffects';
 import { STOCK_PHOTO_ITEMS } from '../data/stockImages';
 
 export type SidebarTab =
@@ -47,6 +69,8 @@ export type SidebarTab =
 interface SidebarProps {
   activeTab: SidebarTab;
   onTabChange: (tab: SidebarTab) => void;
+  appearanceSubTab?: 'bg' | 'effects' | 'watermark';
+  onAppearanceSubTabChange?: (sub: 'bg' | 'effects' | 'watermark') => void;
   isMobileDrawerOpen: boolean;
   onOpenMobileDrawer: (tab: SidebarTab) => void;
   onCloseMobileDrawer: () => void;
@@ -66,7 +90,16 @@ interface SidebarProps {
     bgColor: string,
     textColor: string
   ) => void;
-  onAddImage: (src: string, width?: number, height?: number) => void;
+  onAddImage: (src: string, width?: number, height?: number, extra?: Partial<ImageElement>) => void;
+  onAddTextCard?: (opts: {
+    title: string;
+    body: string;
+    cardBg: string;
+    textColor: string;
+    accentColor: string;
+    borderRadius: number;
+    hasAccentBar?: boolean;
+  }) => void;
   onAddQrCode: (data: string, label?: string, qrColor?: string, bgColor?: string) => void;
   onAddChart: (chartType: ChartType, title?: string) => void;
   onToggleGrid?: () => void;
@@ -76,6 +109,14 @@ interface SidebarProps {
   onChangeColorEffect: (effect: ColorEffectPreset) => void;
   currentWatermark: WatermarkConfig;
   onChangeWatermark: (wm: WatermarkConfig, commit?: boolean) => void;
+  hasSelectedImageOrShape?: boolean;
+  onReplaceSelectedWithPhoto?: (src: string, asCircle?: boolean) => void;
+  onAddVerifiedBadge?: (color?: string) => void;
+  customTemplates?: PosterTemplate[];
+  onOpenNewBlankModal?: () => void;
+  onOpenSaveAsTemplateModal?: () => void;
+  onDeleteCustomTemplate?: (id: string) => void;
+  onOpenLayersModal?: () => void;
 }
 
 const TEMPLATES_PAGE_SIZE = 24;
@@ -83,6 +124,8 @@ const TEMPLATES_PAGE_SIZE = 24;
 export const Sidebar: React.FC<SidebarProps> = React.memo(({
   activeTab,
   onTabChange,
+  appearanceSubTab: propAppearanceSubTab,
+  onAppearanceSubTabChange,
   isMobileDrawerOpen,
   onOpenMobileDrawer,
   onCloseMobileDrawer,
@@ -91,6 +134,7 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(({
   onAddShape,
   onAddBadge,
   onAddImage,
+  onAddTextCard,
   onAddQrCode,
   onAddChart,
   onToggleGrid,
@@ -99,7 +143,15 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(({
   currentColorEffect,
   onChangeColorEffect,
   currentWatermark,
-  onChangeWatermark
+  onChangeWatermark,
+  hasSelectedImageOrShape,
+  onReplaceSelectedWithPhoto,
+  onAddVerifiedBadge,
+  customTemplates = [],
+  onOpenNewBlankModal,
+  onOpenSaveAsTemplateModal,
+  onDeleteCustomTemplate,
+  onOpenLayersModal
 }) => {
   const [templateSearch, setTemplateSearch] = useState('');
   const [templateCategory, setTemplateCategory] = useState<string>('all');
@@ -108,20 +160,50 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(({
   const [textSearch, setTextSearch] = useState('');
   const [textCategory, setTextCategory] = useState<TextPresetCategory>('Zote');
 
+  // Text Card Builder state
+  const [cardBuilderOpen, setCardBuilderOpen] = useState(false);
+  const [cardTitle, setCardTitle] = useState('TAARIFA MUHIMU');
+  const [cardBody, setCardBody] = useState(
+    'Andika ujumbe wako, nukuu au tangazo hapa. Kadi hii inaweza kuhaririwa maneno na rangi moja kwa moja.'
+  );
+  const [cardBg, setCardBg] = useState('#ffffff');
+  const [cardTextColor, setCardTextColor] = useState('#0f172a');
+  const [cardAccentColor, setCardAccentColor] = useState('#f59e0b');
+  const [cardRadius, setCardRadius] = useState(24);
+  const [cardHasAccentBar, setCardHasAccentBar] = useState(true);
+
+  // Photo Upload Shape Mode (Kawaida / Pembe Laini / Duara)
+  const [uploadPhotoShape, setUploadPhotoShape] = useState<'rect' | 'rounded' | 'circle'>('rect');
+
+  // 500 Color Effects Filter & Pagination state
+  const [effectSearch, setEffectSearch] = useState('');
+  const [effectCategory, setEffectCategory] = useState<ColorEffectCategory>('Zote');
+  const [effectVisibleCount, setEffectVisibleCount] = useState(40);
+
   const [shapeSearch, setShapeSearch] = useState('');
   const [shapeCategory, setShapeCategory] = useState<'Zote' | ShapeCategory>('Zote');
 
   const [conceptSearch, setConceptSearch] = useState('');
 
-  // Custom Brand Logo Builder state
+  // Custom Brand Logo Builder state + 1,000 Ready Logos filter & pagination
   const [logoBrandName, setLogoBrandName] = useState('MALOSHA');
   const [logoSubtitle, setLogoSubtitle] = useState('POSTER & DESIGN');
   const [logoEmblemId, setLogoEmblemId] = useState('crown');
   const [logoColor, setLogoColor] = useState('#fbbf24');
-  const [logoStyle, setLogoStyle] = useState<'badge' | 'minimal' | 'emblem' | 'shield'>('badge');
+  const [logoSecondaryColor, setLogoSecondaryColor] = useState('#0f172a');
+  const [logoStyle, setLogoStyle] = useState<LogoStyle>('badge');
+  const [logoSearch, setLogoSearch] = useState('');
+  const [logoCategory, setLogoCategory] = useState<string>('Zote');
+  const [logoProfession, setLogoProfession] = useState<string>('Fani Zote (105+)');
+  const [logoVisibleCount, setLogoVisibleCount] = useState(30);
 
-  // Background / Color Effect / Watermark sub-tab
-  const [appearanceSubTab, setAppearanceSubTab] = useState<'bg' | 'effects' | 'watermark'>('bg');
+  // Background / Color Effect / Watermark sub-tab (supports controlled or local state)
+  const [localAppearanceSubTab, setLocalAppearanceSubTab] = useState<'bg' | 'effects' | 'watermark'>('bg');
+  const appearanceSubTab = propAppearanceSubTab ?? localAppearanceSubTab;
+  const setAppearanceSubTab = (sub: 'bg' | 'effects' | 'watermark') => {
+    setLocalAppearanceSubTab(sub);
+    onAppearanceSubTabChange?.(sub);
+  };
 
   const [qrInput, setQrInput] = useState('https://malosha.co.tz');
   const [qrLabel, setQrLabel] = useState('TEMBELEA TOVUTI');
@@ -133,20 +215,45 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(({
     setTemplateVisibleCount(TEMPLATES_PAGE_SIZE);
   }, [templateCategory, templateSearch]);
 
-  // Filter 1,000 templates (memoized + paginated)
+  // Separate dedicated collection of the 6 user-provided image templates
+  const featuredUploadTemplates = useMemo(
+    () => TEMPLATES_1000.filter((t) => Boolean(t.isFeaturedUpload)),
+    []
+  );
+
+  // Merge user-created templates first + built-in 1,000 templates
+  const allTemplates = useMemo(
+    () => [...customTemplates, ...TEMPLATES_1000],
+    [customTemplates]
+  );
+
+  const isSplitFeaturedMode = templateCategory === 'all' && templateSearch.trim() === '';
+
+  // Filter templates (memoized + paginated)
   const filteredTemplates = useMemo(() => {
     const q = templateSearch.trim().toLowerCase();
-    return TEMPLATES_1000.filter((t) => {
-      const matchCat = templateCategory === 'all' || t.category === templateCategory;
+    return allTemplates.filter((t) => {
+      // When in default "Zote" view without search, exclude featured uploads from the general grid
+      // because they are already showcased in their own dedicated section at the top.
+      if (isSplitFeaturedMode && t.isFeaturedUpload) return false;
+
+      const matchCat =
+        templateCategory === 'all' ||
+        (templateCategory === 'featured-uploads'
+          ? Boolean(t.isFeaturedUpload)
+          : templateCategory === 'custom'
+            ? Boolean(t.isCustom)
+            : t.category === templateCategory);
       const matchSearch =
         q === '' ||
         t.title.toLowerCase().includes(q) ||
         t.titleSwahili.toLowerCase().includes(q) ||
         t.categoryLabelSwahili.toLowerCase().includes(q) ||
+        (t.previewBadge?.toLowerCase().includes(q) ?? false) ||
         t.description.toLowerCase().includes(q);
       return matchCat && matchSearch;
     });
-  }, [templateCategory, templateSearch]);
+  }, [allTemplates, templateCategory, templateSearch, isSplitFeaturedMode]);
 
   const visibleTemplates = useMemo(
     () => filteredTemplates.slice(0, templateVisibleCount),
@@ -181,62 +288,138 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(({
     });
   }, [shapeCategory, shapeSearch]);
 
-  const customLogoPreviewUrl = useMemo(
-    () => buildCustomLogoDataUrl(logoBrandName, logoSubtitle, logoEmblemId, logoColor, logoStyle),
-    [logoBrandName, logoSubtitle, logoEmblemId, logoColor, logoStyle]
+  useEffect(() => {
+    setEffectVisibleCount(40);
+  }, [effectCategory, effectSearch]);
+
+  const filteredEffects = useMemo(() => {
+    const q = effectSearch.trim().toLowerCase();
+    return COLOR_EFFECT_PRESETS.filter((eff) => {
+      const matchCat = effectCategory === 'Zote' || eff.category === effectCategory;
+      const matchQ =
+        q === '' ||
+        eff.label.toLowerCase().includes(q) ||
+        eff.category.toLowerCase().includes(q) ||
+        eff.desc.toLowerCase().includes(q);
+      return matchCat && matchQ;
+    });
+  }, [effectCategory, effectSearch]);
+
+  const visibleEffects = useMemo(
+    () => filteredEffects.slice(0, effectVisibleCount),
+    [filteredEffects, effectVisibleCount]
   );
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  useEffect(() => {
+    setLogoVisibleCount(30);
+  }, [logoCategory, logoProfession, logoSearch]);
+
+  const filteredLogos = useMemo(() => {
+    const q = logoSearch.trim().toLowerCase();
+    return READY_LOGOS.filter((logo) => {
+      const matchCat = logoCategory === 'Zote' || logo.category === logoCategory;
+      const matchProf =
+        logoProfession === 'Fani Zote (105+)' || logo.profession === logoProfession;
+      const matchQ =
+        q === '' ||
+        logo.name.toLowerCase().includes(q) ||
+        logo.subtitle.toLowerCase().includes(q) ||
+        logo.profession.toLowerCase().includes(q) ||
+        logo.category.toLowerCase().includes(q);
+      return matchCat && matchProf && matchQ;
+    });
+  }, [logoCategory, logoProfession, logoSearch]);
+
+  const visibleLogos = useMemo(
+    () => filteredLogos.slice(0, logoVisibleCount),
+    [filteredLogos, logoVisibleCount]
+  );
+
+  const customLogoPreviewUrl = useMemo(
+    () =>
+      buildCustomLogoDataUrl(
+        logoBrandName,
+        logoSubtitle,
+        logoEmblemId,
+        logoColor,
+        logoStyle,
+        logoSecondaryColor
+      ),
+    [logoBrandName, logoSubtitle, logoEmblemId, logoColor, logoStyle, logoSecondaryColor]
+  );
+
+  const addImageWithShape = (
+    dataUrl: string,
+    natW: number,
+    natH: number,
+    shapeMode: 'rect' | 'rounded' | 'circle'
+  ) => {
+    if (shapeMode === 'circle') {
+      const circleSize = 260;
+      onAddImage(dataUrl, circleSize, circleSize, {
+        borderRadius: 999,
+        borderColor: '#ffffff',
+        borderWidth: 3
+      });
+    } else {
+      const displayW = Math.min(460, natW || 400);
+      const displayH = Math.max(
+        120,
+        Math.round((displayW / (natW || 400)) * (natH || 300))
+      );
+      onAddImage(dataUrl, displayW, displayH, {
+        borderRadius: shapeMode === 'rounded' ? 28 : 8
+      });
+    }
+    onCloseMobileDrawer();
+  };
+
+  const handleImageUpload = async (
+    e: React.ChangeEvent<HTMLInputElement>,
+    shapeOverride?: 'rect' | 'rounded' | 'circle'
+  ) => {
     const file = e.target.files?.[0];
-    if (!file) return;
-
-    const objectUrl = URL.createObjectURL(file);
-    const img = new Image();
-    img.onload = () => {
-      const maxDim = 1500;
-      let targetW = img.naturalWidth || 800;
-      let targetH = img.naturalHeight || 600;
-      if (targetW > maxDim || targetH > maxDim) {
-        const ratio = Math.min(maxDim / targetW, maxDim / targetH);
-        targetW = Math.round(targetW * ratio);
-        targetH = Math.round(targetH * ratio);
-      }
-
-      const canvas = document.createElement('canvas');
-      canvas.width = targetW;
-      canvas.height = targetH;
-      const ctx = canvas.getContext('2d');
-      let dataUrl = '';
-      if (ctx) {
-        ctx.drawImage(img, 0, 0, targetW, targetH);
-        const keepAlpha = file.type === 'image/png' || file.type === 'image/webp';
-        dataUrl = keepAlpha
-          ? canvas.toDataURL('image/webp', 0.88)
-          : canvas.toDataURL('image/jpeg', 0.86);
-      }
-      URL.revokeObjectURL(objectUrl);
-
-      if (dataUrl) {
-        const displayW = Math.min(460, targetW);
-        const displayH = Math.max(120, Math.round((displayW / targetW) * targetH));
-        onAddImage(dataUrl, displayW, displayH);
-        onCloseMobileDrawer();
-      }
-    };
-    img.onerror = () => {
-      URL.revokeObjectURL(objectUrl);
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const result = event.target?.result as string;
-        if (result) {
-          onAddImage(result, 400, 300);
-          onCloseMobileDrawer();
-        }
-      };
-      reader.readAsDataURL(file);
-    };
-    img.src = objectUrl;
     e.target.value = '';
+    if (!file) return;
+    try {
+      const { dataUrl, width, height } = await processUploadedImageFile(file, 1500);
+      addImageWithShape(dataUrl, width, height, shapeOverride ?? uploadPhotoShape);
+    } catch {
+      // Ignore upload failure gracefully
+    }
+  };
+
+  const handleReplacePhotoUpload = async (
+    e: React.ChangeEvent<HTMLInputElement>,
+    asCircle?: boolean
+  ) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || !onReplaceSelectedWithPhoto) return;
+    try {
+      const { dataUrl } = await processUploadedImageFile(file, 1500);
+      onReplaceSelectedWithPhoto(dataUrl, asCircle);
+      onCloseMobileDrawer();
+    } catch {
+      // Ignore upload failure gracefully
+    }
+  };
+
+  const handleBgPhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+      const { dataUrl } = await processUploadedImageFile(file, 1600);
+      onChangeBackground({
+        type: 'image',
+        imageUrl: dataUrl,
+        overlayOpacity: 0
+      });
+      onCloseMobileDrawer();
+    } catch {
+      // Ignore upload failure gracefully
+    }
   };
 
   const navItems: {
@@ -256,7 +439,14 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(({
     { id: 'background', label: 'Rangi/Athari', shortLabel: 'Athari', icon: Palette }
   ];
 
-  const activeNavLabel = navItems.find((n) => n.id === activeTab)?.label || '';
+  const activeNavLabel =
+    activeTab === 'background'
+      ? appearanceSubTab === 'watermark'
+        ? 'Watermark ya Bango'
+        : appearanceSubTab === 'effects'
+          ? 'Athari za Rangi'
+          : 'Rangi & Mandhari'
+      : navItems.find((n) => n.id === activeTab)?.label || '';
 
   const chartCatalog: { type: ChartType; title: string; label: string; desc: string; tag: string }[] = [
     { type: 'bar', title: 'Mauzo ya Robo Mwaka', label: 'Mihimili Wima (Bar)', desc: 'Linganisha vipengele na mauzo', tag: 'BAR' },
@@ -529,6 +719,38 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(({
             </span>
           </div>
 
+          {/* Studio Action Strip: Start From Scratch or Save Current Design to List */}
+          {(onOpenNewBlankModal || onOpenSaveAsTemplateModal) && (
+            <div className="grid grid-cols-2 gap-2">
+              {onOpenNewBlankModal && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onOpenNewBlankModal();
+                    onCloseMobileDrawer();
+                  }}
+                  className="py-2 px-2.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-black text-[11px] font-bold flex items-center justify-center gap-1.5 cursor-pointer shadow-sm transition-colors"
+                >
+                  <FilePlus2 className="w-3.5 h-3.5 shrink-0" />
+                  <span className="truncate">Anza Upya (Blank)</span>
+                </button>
+              )}
+              {onOpenSaveAsTemplateModal && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onOpenSaveAsTemplateModal();
+                    onCloseMobileDrawer();
+                  }}
+                  className="py-2 px-2.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/40 text-emerald-300 text-[11px] font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
+                >
+                  <BookmarkPlus className="w-3.5 h-3.5 shrink-0" />
+                  <span className="truncate">+ Hifadhi Kiolezo</span>
+                </button>
+              )}
+            </div>
+          )}
+
           {/* Search */}
           <div className="relative">
             <Search className="w-4 h-4 text-neutral-400 absolute left-3 top-2.5" />
@@ -550,15 +772,109 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(({
                 className={`px-2.5 py-1 rounded-md text-[11px] font-medium whitespace-nowrap transition-colors cursor-pointer ${
                   templateCategory === cat.id
                     ? 'bg-amber-400 text-black font-semibold'
-                    : 'bg-neutral-800 text-neutral-300 hover:bg-neutral-700'
+                    : cat.id === 'featured-uploads'
+                      ? 'bg-sky-500/15 text-sky-300 border border-sky-500/40 hover:bg-sky-500/25'
+                      : 'bg-neutral-800 text-neutral-300 hover:bg-neutral-700'
                 }`}
               >
-                {cat.label}
+                {cat.id === 'custom'
+                  ? `${cat.label} (${customTemplates.length})`
+                  : cat.id === 'featured-uploads'
+                    ? `${cat.label} (${featuredUploadTemplates.length})`
+                    : cat.label}
               </button>
             ))}
           </div>
 
-          {/* Paginated Template Grid */}
+          {/* Dedicated Separated Section for User-Provided Image Templates (never mixed with 1,000 general ones) */}
+          {isSplitFeaturedMode && featuredUploadTemplates.length > 0 && (
+            <div className="p-2.5 rounded-2xl bg-gradient-to-b from-amber-500/10 to-neutral-900/90 border border-amber-400/35 flex flex-col gap-2">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <span className="text-[11px] font-extrabold text-amber-300 uppercase tracking-wide flex items-center gap-1">
+                    ★ Violezo Maalum (Ulizotuma Kwa Picha)
+                  </span>
+                  <span className="text-[10px] text-neutral-400 block">
+                    Vimetengwa hapa ili uvifikie haraka bila kuchanganyika.
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setTemplateCategory('featured-uploads')}
+                  className="px-2 py-1 rounded-md bg-amber-400/20 hover:bg-amber-400/30 text-amber-300 text-[10px] font-bold whitespace-nowrap cursor-pointer"
+                >
+                  Zote ({featuredUploadTemplates.length})
+                </button>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                {featuredUploadTemplates.map((template) => (
+                  <div
+                    key={`sec_${template.id}`}
+                    onClick={() => {
+                      onSelectTemplate(template);
+                      onCloseMobileDrawer();
+                    }}
+                    className="group relative bg-neutral-900 border border-amber-400/40 hover:border-amber-300 rounded-xl overflow-hidden cursor-pointer transition-all hover:shadow-lg"
+                  >
+                    <div className="aspect-[3/4] w-full bg-neutral-950 overflow-hidden relative">
+                      <span className="absolute top-1.5 left-1.5 z-10 px-1.5 py-0.5 rounded bg-amber-400 text-black text-[8px] font-extrabold shadow pointer-events-none">
+                        {template.previewBadge || 'MAALUM'}
+                      </span>
+                      {template.thumbnailPreview ? (
+                        <div className="w-full h-full bg-neutral-950 p-1 pb-6 flex items-center justify-center">
+                          <img
+                            src={template.thumbnailPreview}
+                            alt={template.title}
+                            loading="lazy"
+                            decoding="async"
+                            referrerPolicy="no-referrer"
+                            className="w-full h-full object-contain rounded group-hover:scale-[1.03] transition-transform duration-300"
+                          />
+                        </div>
+                      ) : (
+                        <TemplateMiniPreview template={template} />
+                      )}
+                      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/95 via-black/80 to-transparent p-2 pointer-events-none">
+                        <span className="text-[10px] font-bold text-white leading-tight line-clamp-1 block">
+                          {template.titleSwahili}
+                        </span>
+                        <span className="text-[9px] text-amber-300 block truncate">
+                          Violezo Maalum · {template.width}×{template.height}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {isSplitFeaturedMode && (
+            <div className="flex items-center justify-between pt-1 border-t border-neutral-800">
+              <span className="text-[11px] font-bold text-neutral-300 uppercase tracking-wider">
+                Violezo Vingine vya Studio ({filteredTemplates.length})
+              </span>
+            </div>
+          )}
+
+          {templateCategory === 'featured-uploads' && (
+            <div className="p-2.5 rounded-xl bg-sky-500/10 border border-sky-500/30 flex items-center justify-between gap-2">
+              <span className="text-[11px] font-bold text-sky-300">
+                ★ Violezo Maalum Ulizotuma Kwa Picha ({filteredTemplates.length})
+              </span>
+            </div>
+          )}
+
+          {templateCategory === 'custom' && customTemplates.length === 0 && (
+            <div className="p-4 rounded-xl bg-neutral-800/60 border border-neutral-700/80 text-center flex flex-col items-center gap-2">
+              <p className="text-xs text-neutral-300">
+                Bado hujaongeza kiolezo chako mwenyewe. Buni bango kutoka mwanzo au hariri lolote kisha gusa{' '}
+                <strong className="text-emerald-300">+ Hifadhi Kiolezo</strong>.
+              </p>
+            </div>
+          )}
+
+          {/* Paginated Template Grid with True Layout Miniatures */}
           <div className="grid grid-cols-2 md:grid-cols-2 gap-2.5 mt-1">
             {visibleTemplates.map((template) => (
               <div
@@ -570,62 +886,53 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(({
                 className="group relative bg-neutral-800/80 border border-neutral-700/80 hover:border-amber-400 rounded-xl overflow-hidden cursor-pointer transition-all hover:shadow-lg"
               >
                 <div className="aspect-[3/4] w-full bg-neutral-950 overflow-hidden relative">
-                  {template.thumbnailPreview ? (
-                    <img
-                      src={template.thumbnailPreview}
-                      alt={template.title}
-                      loading="lazy"
-                      decoding="async"
-                      referrerPolicy="no-referrer"
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                    />
-                  ) : (
-                    <div
-                      className="w-full h-full flex flex-col justify-between p-2.5 text-left relative"
-                      style={{
-                        background:
-                          template.previewBg ||
-                          'linear-gradient(150deg, #1e1b4b, #0f172a, #020617)'
-                      }}
-                    >
-                      <div className="flex items-center justify-between gap-1">
-                        <span
-                          className="text-[9px] font-extrabold px-1.5 py-0.5 rounded text-black uppercase tracking-wider"
-                          style={{ backgroundColor: template.previewAccent || '#fbbf24' }}
+                  {template.isFeaturedUpload && !template.isCustom && (
+                    <span className="absolute top-1.5 left-1.5 z-10 px-1.5 py-0.5 rounded bg-amber-400 text-black text-[8px] font-extrabold shadow pointer-events-none">
+                      {template.previewBadge || 'MAALUM'}
+                    </span>
+                  )}
+                  {template.isCustom && (
+                    <div className="absolute top-1.5 left-1.5 right-1.5 flex items-center justify-between z-10 pointer-events-none">
+                      <span className="px-1.5 py-0.5 rounded bg-emerald-500 text-black text-[9px] font-extrabold shadow">
+                        CHAKO
+                      </span>
+                      {onDeleteCustomTemplate && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onDeleteCustomTemplate(template.id);
+                          }}
+                          className="pointer-events-auto p-1 rounded bg-black/80 hover:bg-red-600 text-red-300 hover:text-white border border-white/15 cursor-pointer"
+                          title="Futa kiolezo hiki"
                         >
-                          {template.previewBadge || template.categoryLabelSwahili.slice(0, 8)}
-                        </span>
-                        <span className="text-[9px] font-mono text-white/60">
-                          {template.width}×{template.height}
-                        </span>
-                      </div>
-
-                      {/* Mini structural visual lines hinting at layout */}
-                      <div className="my-auto flex flex-col gap-1.5 opacity-85">
-                        <div
-                          className="h-1.5 w-10 rounded-full"
-                          style={{ backgroundColor: template.previewAccent || '#fbbf24' }}
-                        />
-                        <div className="text-[11px] font-bold text-white leading-tight line-clamp-3 drop-shadow">
-                          {template.titleSwahili}
-                        </div>
-                      </div>
-
-                      <div className="h-1 w-full rounded bg-white/15 overflow-hidden">
-                        <div
-                          className="h-full w-2/3"
-                          style={{ backgroundColor: template.previewAccent || '#fbbf24' }}
-                        />
-                      </div>
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      )}
                     </div>
                   )}
 
-                  <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/95 via-black/75 to-transparent p-2">
+                  {template.thumbnailPreview ? (
+                    <div className="w-full h-full bg-neutral-950 p-1 pb-6 flex items-center justify-center">
+                      <img
+                        src={template.thumbnailPreview}
+                        alt={template.title}
+                        loading="lazy"
+                        decoding="async"
+                        referrerPolicy="no-referrer"
+                        className="w-full h-full object-contain rounded group-hover:scale-[1.03] transition-transform duration-300"
+                      />
+                    </div>
+                  ) : (
+                    <TemplateMiniPreview template={template} />
+                  )}
+
+                  <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/95 via-black/75 to-transparent p-2 pointer-events-none">
                     <span className="text-[10px] font-bold text-white leading-tight line-clamp-1 block">
                       {template.titleSwahili}
                     </span>
                     <span className="text-[9px] text-amber-300 block truncate">
-                      {template.categoryLabelSwahili}
+                      {template.isFeaturedUpload ? 'Violezo Maalum' : template.categoryLabelSwahili} · {template.width}×{template.height}
                     </span>
                   </div>
                 </div>
@@ -696,6 +1003,37 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(({
             </p>
           </div>
 
+          {(onOpenNewBlankModal || onOpenLayersModal) && (
+            <div className="grid grid-cols-2 gap-1.5">
+              {onOpenNewBlankModal && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onOpenNewBlankModal();
+                    onCloseMobileDrawer();
+                  }}
+                  className="py-2 px-2.5 rounded-lg bg-amber-400/15 hover:bg-amber-400/25 border border-amber-400/40 text-amber-300 text-[11px] font-bold flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <FilePlus2 className="w-3.5 h-3.5" />
+                  <span>Canvas Tupu</span>
+                </button>
+              )}
+              {onOpenLayersModal && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onOpenLayersModal();
+                    onCloseMobileDrawer();
+                  }}
+                  className="py-2 px-2.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 text-neutral-200 text-[11px] font-bold flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <Layers className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Tabaka (Layers)</span>
+                </button>
+              )}
+            </div>
+          )}
+
           <div className="relative">
             <Search className="w-4 h-4 text-neutral-400 absolute left-3 top-2.5" />
             <input
@@ -740,15 +1078,258 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(({
         <div className="flex flex-col gap-3">
           <div className="flex items-center justify-between gap-2">
             <div>
-              <h2 className="text-sm font-bold text-white tracking-tight">Maandishi 100</h2>
+              <h2 className="text-sm font-bold text-white tracking-tight">Maandishi &amp; Kadi 100</h2>
               <p className="text-[11px] text-neutral-400 mt-0.5">
-                Mitindo 100 ya vichwa vikuu, habari, nukuu, cheti &amp; ofa.
+                Ongeza maandishi kwa ukubwa unaotaka au chagua kadi na mitindo 100.
               </p>
             </div>
             <span className="font-mono text-[10px] font-bold text-amber-300 bg-amber-500/10 border border-amber-500/30 px-2 py-0.5 rounded-md shrink-0">
               {filteredTextPresets.length}
             </span>
           </div>
+
+          {/* Ongeza Maandishi Haraka kwa Ukubwa (Habari, Matangazo, Maelezo) */}
+          <div className="p-2.5 rounded-xl bg-neutral-800/60 border border-neutral-700/80 flex flex-col gap-1.5">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400">
+              Ongeza Maandishi kwa Ukubwa:
+            </span>
+            <div className="grid grid-cols-2 gap-1.5">
+              {[
+                {
+                  label: 'Habari Kuu (72px)',
+                  text: 'KICHWA CHA HABARI',
+                  size: 72,
+                  weight: 900,
+                  font: 'Anton',
+                  h: 105
+                },
+                {
+                  label: 'Tangazo Kubwa (56px)',
+                  text: 'OFA MAALUM LEO',
+                  size: 56,
+                  weight: 800,
+                  font: 'Outfit',
+                  h: 84
+                },
+                {
+                  label: 'Kichwa cha Kati (36px)',
+                  text: 'Taarifa Muhimu Kwa Umma',
+                  size: 36,
+                  weight: 700,
+                  font: 'Outfit',
+                  h: 58
+                },
+                {
+                  label: 'Maelezo / Ndogo (18px)',
+                  text: 'Andika maelezo mafupi au tarehe na mahali hapa...',
+                  size: 18,
+                  weight: 500,
+                  font: 'Plus Jakarta Sans',
+                  h: 42
+                }
+              ].map((item) => (
+                <button
+                  key={item.label}
+                  type="button"
+                  onClick={() => {
+                    onAddText(item.text, item.size, item.weight, item.font, '#ffffff', {
+                      height: item.h,
+                      width: item.size >= 56 ? 680 : 540
+                    });
+                    onCloseMobileDrawer();
+                  }}
+                  className="px-2.5 py-2 rounded-lg bg-neutral-900/90 hover:bg-amber-400 hover:text-black border border-neutral-700 hover:border-amber-400 text-left text-[11px] font-bold text-neutral-100 transition-colors cursor-pointer"
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Kadi yenye Maneno (Text Card Studio) */}
+          {onAddTextCard && (
+            <div className="p-3 rounded-xl bg-neutral-800/80 border border-amber-400/40 flex flex-col gap-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <span className="text-xs font-bold text-amber-300 block">
+                    Tengeneza Kadi yenye Maneno (Card)
+                  </span>
+                  <span className="text-[10px] text-neutral-400">
+                    Kadi ya nukuu, taarifa, au habari yenye mandhari &amp; maandishi
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setCardBuilderOpen((p) => !p)}
+                  className="px-2.5 py-1 rounded-lg bg-amber-400 hover:bg-amber-300 text-black text-[11px] font-bold cursor-pointer shrink-0"
+                >
+                  {cardBuilderOpen ? 'Funga' : 'Tengeneza'}
+                </button>
+              </div>
+
+              {/* 4 Quick 1-Tap Text Cards */}
+              <div className="grid grid-cols-2 gap-1.5">
+                {[
+                  {
+                    label: 'Kadi Nyeupe (Nukuu)',
+                    title: 'NUKUU YA LEO',
+                    body: 'Mafanikio makubwa huanza na hatua moja ndogo unayoichukua leo.',
+                    cardBg: '#ffffff',
+                    textColor: '#0f172a',
+                    accentColor: '#f59e0b',
+                    borderRadius: 24,
+                    hasAccentBar: true
+                  },
+                  {
+                    label: 'Kadi ya Habari (Breaking)',
+                    title: 'HABARI KUU SASA',
+                    body: 'Andika kichwa chako cha habari muhimu au tangazo rasmi hapa.',
+                    cardBg: '#ffffff',
+                    textColor: '#0f172a',
+                    accentColor: '#dc2626',
+                    borderRadius: 14,
+                    hasAccentBar: true
+                  },
+                  {
+                    label: 'Kadi Meusi (Dark Studio)',
+                    title: 'TAARIFA RASMI',
+                    body: 'Ujumbe wa kitaalamu wenye muonekano wa kisasa na mvuto mkubwa.',
+                    cardBg: '#0f172a',
+                    textColor: '#ffffff',
+                    accentColor: '#38bdf8',
+                    borderRadius: 22,
+                    hasAccentBar: true
+                  },
+                  {
+                    label: 'Kadi ya Dhahabu / Ofa',
+                    title: 'OFA MAALUM 50%',
+                    body: 'Pata huduma na bidhaa zetu bora kwa bei nafuu wiki hii yote.',
+                    cardBg: '#fffbeb',
+                    textColor: '#78350f',
+                    accentColor: '#d97706',
+                    borderRadius: 20,
+                    hasAccentBar: true
+                  }
+                ].map((preset) => (
+                  <button
+                    key={preset.label}
+                    type="button"
+                    onClick={() => {
+                      onAddTextCard({
+                        title: preset.title,
+                        body: preset.body,
+                        cardBg: preset.cardBg,
+                        textColor: preset.textColor,
+                        accentColor: preset.accentColor,
+                        borderRadius: preset.borderRadius,
+                        hasAccentBar: preset.hasAccentBar
+                      });
+                      onCloseMobileDrawer();
+                    }}
+                    className="p-2 rounded-lg border border-neutral-700 hover:border-amber-400 text-left flex items-center gap-2 bg-neutral-900/70 cursor-pointer transition-colors"
+                  >
+                    <span
+                      className="w-4 h-7 rounded-sm shrink-0 border border-white/15"
+                      style={{
+                        backgroundColor: preset.cardBg,
+                        borderLeft: `4px solid ${preset.accentColor}`
+                      }}
+                    />
+                    <span className="text-[10px] font-bold text-neutral-100 leading-tight">
+                      {preset.label}
+                    </span>
+                  </button>
+                ))}
+              </div>
+
+              {cardBuilderOpen && (
+                <div className="flex flex-col gap-2 pt-2 border-t border-neutral-700/70">
+                  <input
+                    type="text"
+                    value={cardTitle}
+                    onChange={(e) => setCardTitle(e.target.value)}
+                    placeholder="Kichwa cha Kadi..."
+                    className="w-full bg-neutral-900 border border-neutral-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-amber-400"
+                  />
+                  <textarea
+                    rows={3}
+                    value={cardBody}
+                    onChange={(e) => setCardBody(e.target.value)}
+                    placeholder="Andika maneno ya ndani ya kadi..."
+                    className="w-full bg-neutral-900 border border-neutral-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-amber-400 resize-none"
+                  />
+                  <div className="grid grid-cols-3 gap-1.5">
+                    <label className="bg-neutral-900 border border-neutral-700 rounded-lg px-2 py-1 flex items-center justify-between text-[10px] text-neutral-300">
+                      <span>Kadi</span>
+                      <input
+                        type="color"
+                        value={cardBg}
+                        onChange={(e) => setCardBg(e.target.value)}
+                        className="w-5 h-4 bg-transparent border-0 cursor-pointer"
+                      />
+                    </label>
+                    <label className="bg-neutral-900 border border-neutral-700 rounded-lg px-2 py-1 flex items-center justify-between text-[10px] text-neutral-300">
+                      <span>Maneno</span>
+                      <input
+                        type="color"
+                        value={cardTextColor}
+                        onChange={(e) => setCardTextColor(e.target.value)}
+                        className="w-5 h-4 bg-transparent border-0 cursor-pointer"
+                      />
+                    </label>
+                    <label className="bg-neutral-900 border border-neutral-700 rounded-lg px-2 py-1 flex items-center justify-between text-[10px] text-neutral-300">
+                      <span>Mstari</span>
+                      <input
+                        type="color"
+                        value={cardAccentColor}
+                        onChange={(e) => setCardAccentColor(e.target.value)}
+                        className="w-5 h-4 bg-transparent border-0 cursor-pointer"
+                      />
+                    </label>
+                  </div>
+                  <div className="flex items-center justify-between gap-2 text-[10px] text-neutral-300">
+                    <span>Mviringo: {cardRadius}px</span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={48}
+                      value={cardRadius}
+                      onChange={(e) => setCardRadius(Number(e.target.value))}
+                      className="w-24 accent-amber-400"
+                    />
+                    <label className="flex items-center gap-1 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={cardHasAccentBar}
+                        onChange={(e) => setCardHasAccentBar(e.target.checked)}
+                        className="accent-amber-400"
+                      />
+                      <span>Mstari</span>
+                    </label>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onAddTextCard({
+                        title: cardTitle,
+                        body: cardBody,
+                        cardBg,
+                        textColor: cardTextColor,
+                        accentColor: cardAccentColor,
+                        borderRadius: cardRadius,
+                        hasAccentBar: cardHasAccentBar
+                      });
+                      onCloseMobileDrawer();
+                    }}
+                    className="w-full py-2 rounded-lg bg-amber-400 hover:bg-amber-300 text-black text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <Plus className="w-4 h-4 stroke-[2.5]" />
+                    <span>Weka Kadi yenye Maneno Kwenye Bango</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="relative">
             <Search className="w-4 h-4 text-neutral-400 absolute left-3 top-2.5" />
@@ -844,24 +1425,111 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(({
             </p>
           </div>
 
-          <label className="w-full py-4 border-2 border-dashed border-neutral-700 hover:border-amber-400 rounded-xl bg-neutral-800/50 hover:bg-neutral-800 flex flex-col items-center justify-center gap-1.5 cursor-pointer transition-colors group">
-            <Upload className="w-5 h-5 text-neutral-400 group-hover:text-amber-400" />
-            <span className="text-xs font-bold text-white">Pakia Picha au Nembo</span>
-            <span className="text-[10px] text-neutral-400">PNG, JPG, au WebP</span>
-            <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
+          {hasSelectedImageOrShape && onReplaceSelectedWithPhoto && (
+            <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-400/60 flex flex-col gap-2">
+              <span className="text-[11px] font-bold text-amber-300 text-center">
+                Badili Picha / Umbo Lililochaguliwa:
+              </span>
+              <div className="grid grid-cols-2 gap-1.5">
+                <label className="py-2 px-2 rounded-lg bg-amber-400 hover:bg-amber-300 text-black text-[11px] font-bold flex items-center justify-center gap-1 cursor-pointer">
+                  <Upload className="w-3.5 h-3.5 shrink-0" />
+                  <span>Kawaida</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => handleReplacePhotoUpload(e, false)}
+                    className="hidden"
+                  />
+                </label>
+                <label className="py-2 px-2 rounded-lg bg-neutral-900 hover:bg-neutral-800 border border-amber-400/70 text-amber-300 text-[11px] font-bold flex items-center justify-center gap-1 cursor-pointer">
+                  <Upload className="w-3.5 h-3.5 shrink-0" />
+                  <span>Duara (◯)</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => handleReplacePhotoUpload(e, true)}
+                    className="hidden"
+                  />
+                </label>
+              </div>
+            </div>
+          )}
+
+          {/* Direct 2-button Upload: Normal vs Circle Avatar */}
+          <div className="grid grid-cols-2 gap-2">
+            <label className="py-3 px-2 border-2 border-dashed border-neutral-700 hover:border-amber-400 rounded-xl bg-neutral-800/60 hover:bg-neutral-800 flex flex-col items-center justify-center gap-1 cursor-pointer transition-colors group text-center">
+              <Upload className="w-5 h-5 text-neutral-300 group-hover:text-amber-400" />
+              <span className="text-[11px] font-bold text-white leading-tight">
+                Pakia Picha ya Kawaida
+              </span>
+              <span className="text-[9px] text-neutral-400">Umbo la Mstatili</span>
+              <input
+                type="file"
+                accept="image/*"
+                onChange={(e) => handleImageUpload(e, 'rect')}
+                className="hidden"
+              />
+            </label>
+
+            <label className="py-3 px-2 border-2 border-dashed border-amber-400/60 hover:border-amber-400 rounded-xl bg-amber-500/10 hover:bg-amber-500/15 flex flex-col items-center justify-center gap-1 cursor-pointer transition-colors group text-center">
+              <div className="w-6 h-6 rounded-full border-2 border-amber-400 flex items-center justify-center">
+                <Upload className="w-3.5 h-3.5 text-amber-400" />
+              </div>
+              <span className="text-[11px] font-bold text-amber-300 leading-tight">
+                Pakia Picha ya Duara (◯)
+              </span>
+              <span className="text-[9px] text-neutral-300">Avatar / Profaili</span>
+              <input
+                type="file"
+                accept="image/*"
+                onChange={(e) => handleImageUpload(e, 'circle')}
+                className="hidden"
+              />
+            </label>
+          </div>
+
+          <label className="w-full py-2.5 px-3 border border-neutral-700 hover:border-sky-400 rounded-xl bg-neutral-800/40 hover:bg-neutral-800 flex items-center justify-center gap-2 cursor-pointer transition-colors">
+            <ImageIcon className="w-4 h-4 text-sky-400 shrink-0" />
+            <span className="text-xs font-semibold text-neutral-200">
+              Weka Kama Picha ya Mandhari (Background)
+            </span>
+            <input type="file" accept="image/*" onChange={handleBgPhotoUpload} className="hidden" />
           </label>
 
           <div>
-            <span className="text-xs font-semibold text-neutral-300">Picha za Mandhari Zilizopo:</span>
-            <div className="grid grid-cols-2 gap-2 mt-2">
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <span className="text-xs font-semibold text-neutral-300">Picha Zilizopo:</span>
+              <div className="flex items-center gap-1 bg-neutral-900 p-0.5 rounded-lg border border-neutral-700">
+                {(
+                  [
+                    { id: 'rect', label: 'Kawaida' },
+                    { id: 'rounded', label: 'Laini' },
+                    { id: 'circle', label: 'Duara ◯' }
+                  ] as const
+                ).map((mode) => (
+                  <button
+                    key={mode.id}
+                    type="button"
+                    onClick={() => setUploadPhotoShape(mode.id)}
+                    className={`px-1.5 py-0.5 rounded text-[10px] font-bold cursor-pointer ${
+                      uploadPhotoShape === mode.id
+                        ? 'bg-amber-400 text-black'
+                        : 'text-neutral-400 hover:text-white'
+                    }`}
+                  >
+                    {mode.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
               {STOCK_PHOTO_ITEMS.map((stock) => (
                 <div
                   key={stock.title}
                   onClick={() => {
-                    onAddImage(stock.url, 400, 500);
-                    onCloseMobileDrawer();
+                    addImageWithShape(stock.url, 400, 500, uploadPhotoShape);
                   }}
-                  className="group relative aspect-[3/4] rounded-lg overflow-hidden border border-neutral-700 hover:border-amber-400 cursor-pointer bg-neutral-950"
+                  className="group relative aspect-[3/4] min-h-[140px] w-full rounded-lg overflow-hidden border border-neutral-700 hover:border-amber-400 cursor-pointer bg-neutral-950"
                 >
                   <img
                     src={stock.url}
@@ -869,9 +1537,41 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(({
                     loading="lazy"
                     decoding="async"
                     referrerPolicy="no-referrer"
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                    className="w-full h-full object-cover block group-hover:scale-105 transition-transform"
                   />
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent flex items-end p-1.5">
+                  <div className="absolute top-1.5 right-1.5 flex gap-1 z-10">
+                    {hasSelectedImageOrShape && onReplaceSelectedWithPhoto && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onReplaceSelectedWithPhoto(stock.url, uploadPhotoShape === 'circle');
+                          onCloseMobileDrawer();
+                        }}
+                        className="px-1.5 py-0.5 rounded bg-amber-400 hover:bg-amber-300 text-black text-[9px] font-bold shadow cursor-pointer"
+                        title="Weka picha hii ndani ya nafasi uliyoichagua"
+                      >
+                        Badili
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onChangeBackground({
+                          type: 'image',
+                          imageUrl: stock.url,
+                          overlayOpacity: 0.15
+                        });
+                        onCloseMobileDrawer();
+                      }}
+                      className="px-1.5 py-0.5 rounded bg-black/80 hover:bg-sky-600 text-white border border-white/20 text-[9px] font-semibold shadow cursor-pointer"
+                      title="Weka kama picha ya nyuma (Background)"
+                    >
+                      Kama BG
+                    </button>
+                  </div>
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-transparent to-transparent flex items-end p-1.5">
                     <span className="text-[10px] font-semibold text-white leading-tight">
                       {stock.title}
                     </span>
@@ -927,12 +1627,47 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(({
             )}
           </div>
 
+          <div className="p-2.5 rounded-xl bg-sky-500/10 border border-sky-500/30 flex items-center justify-between gap-2">
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5 text-xs font-bold text-sky-300">
+                <BadgeCheck className="w-4 h-4 shrink-0" />
+                <span>Verification Badge ✓</span>
+              </div>
+              <p className="text-[10px] text-neutral-400 truncate">Gusa rangi kuongeza alama ya uthibitisho</p>
+            </div>
+            <div className="flex items-center gap-1.5 shrink-0">
+              {['#1d9bf0', '#ec4899', '#eab308', '#22c55e', '#0f172a'].map((col) => (
+                <button
+                  key={col}
+                  type="button"
+                  onClick={() => {
+                    if (onAddVerifiedBadge) {
+                      onAddVerifiedBadge(col);
+                    } else {
+                      onAddShape('verified-badge', col);
+                    }
+                    onCloseMobileDrawer();
+                  }}
+                  className="w-6 h-6 rounded-full border border-white/30 flex items-center justify-center text-[10px] font-bold text-white cursor-pointer hover:scale-110 transition-transform"
+                  style={{ backgroundColor: col }}
+                  title={`Ongeza Verified Badge (${col})`}
+                >
+                  ✓
+                </button>
+              ))}
+            </div>
+          </div>
+
           <div className="grid grid-cols-4 gap-2">
             {filteredShapes.map((s) => (
               <button
                 key={s.id}
                 onClick={() => {
-                  onAddShape(s.id, '#f59e0b', s.id === 'frame-border' ? '#fbbf24' : undefined);
+                  onAddShape(
+                    s.id,
+                    s.id === 'verified-badge' ? '#1d9bf0' : '#f59e0b',
+                    s.id === 'frame-border' ? '#fbbf24' : undefined
+                  );
                   onCloseMobileDrawer();
                 }}
                 className="aspect-square bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 hover:border-amber-400 rounded-lg flex flex-col items-center justify-center p-1 cursor-pointer transition-colors"
@@ -977,27 +1712,70 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(({
         </div>
       )}
 
-      {/* NEW TAB: LOGOS (CUSTOM LOGO BUILDER + 24 READY LOGOS) */}
+      {/* TAB: LOGOS (CUSTOM LOGO BUILDER + 1,000 UNIQUE LOGOS ACROSS 105+ PROFESSIONS) */}
       {activeTab === 'logos' && (
         <div className="flex flex-col gap-4">
-          <div>
-            <h2 className="text-sm font-bold text-white tracking-tight">Nembo &amp; Logo Studio</h2>
-            <p className="text-xs text-neutral-400 mt-0.5">
-              Unda nembo ya jina la biashara yako au chagua kati ya nembo 24 zilizo tayari.
-            </p>
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <h2 className="text-sm font-bold text-white tracking-tight">Nembo &amp; Logo Studio</h2>
+              <p className="text-xs text-neutral-400 mt-0.5">
+                Unda nembo yako au chagua kati ya nembo <strong className="text-amber-400">1,000</strong> za fani <strong className="text-white">105+</strong>.
+              </p>
+            </div>
+            <span className="px-2 py-0.5 rounded-full bg-amber-400/15 border border-amber-400/30 text-amber-300 text-[10px] font-bold shrink-0">
+              1,000
+            </span>
+          </div>
+
+          {/* Quick Verification Badges */}
+          <div className="p-3 bg-sky-500/10 border border-sky-500/30 rounded-xl flex flex-col gap-2">
+            <div className="flex items-center gap-1.5 text-xs font-bold text-sky-300">
+              <BadgeCheck className="w-4 h-4 shrink-0" />
+              <span>Alama za Uthibitisho (Verification Badges ✓)</span>
+            </div>
+            <div className="grid grid-cols-4 gap-1.5">
+              {[
+                { label: 'Bluu', col: '#1d9bf0' },
+                { label: 'Pink', col: '#ec4899' },
+                { label: 'Dhahabu', col: '#eab308' },
+                { label: 'Kijani', col: '#22c55e' }
+              ].map((b) => (
+                <button
+                  key={b.col}
+                  type="button"
+                  onClick={() => {
+                    if (onAddVerifiedBadge) {
+                      onAddVerifiedBadge(b.col);
+                    } else {
+                      onAddShape('verified-badge', b.col);
+                    }
+                    onCloseMobileDrawer();
+                  }}
+                  className="py-1.5 px-2 rounded-lg bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 flex items-center justify-center gap-1.5 text-[11px] font-semibold text-white cursor-pointer transition-colors"
+                >
+                  <span
+                    className="w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-bold text-white shrink-0"
+                    style={{ backgroundColor: b.col }}
+                  >
+                    ✓
+                  </span>
+                  <span>{b.label}</span>
+                </button>
+              ))}
+            </div>
           </div>
 
           {/* Custom Brand Logo Maker */}
           <div className="p-3 bg-neutral-800/70 border border-neutral-700 rounded-xl flex flex-col gap-2.5">
             <span className="text-[11px] font-bold text-amber-400 uppercase tracking-wider">
-              Unda Nembo Yako Papo Hapo:
+              Unda / Badilisha Nembo Yako:
             </span>
 
-            <div className="bg-neutral-950 border border-neutral-800 rounded-lg p-2 flex items-center justify-center min-h-[84px]">
+            <div className="bg-neutral-950 border border-neutral-800 rounded-lg p-2 flex items-center justify-center min-h-[84px] w-full overflow-hidden">
               <img
                 src={customLogoPreviewUrl}
                 alt="Hakiki ya Nembo"
-                className="max-h-20 object-contain"
+                className="w-full h-20 object-contain block"
               />
             </div>
 
@@ -1018,39 +1796,51 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(({
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-3 gap-1.5">
               <select
                 value={logoStyle}
-                onChange={(e) =>
-                  setLogoStyle(e.target.value as 'badge' | 'minimal' | 'emblem' | 'shield')
-                }
-                className="bg-neutral-900 border border-neutral-700 rounded-lg px-2 py-1.5 text-xs text-white"
+                onChange={(e) => setLogoStyle(e.target.value as LogoStyle)}
+                className="col-span-3 sm:col-span-1 bg-neutral-900 border border-neutral-700 rounded-lg px-2 py-1.5 text-xs text-white"
               >
-                <option value="badge">Mtindo: Beji Mlalo</option>
-                <option value="minimal">Mtindo: Kisasa (Minimal)</option>
-                <option value="emblem">Mtindo: Muhuri Duara</option>
-                <option value="shield">Mtindo: Ngao Rasmi</option>
+                <option value="badge">Beji Mlalo</option>
+                <option value="minimal">Kisasa (Minimal)</option>
+                <option value="emblem">Muhuri Duara</option>
+                <option value="shield">Ngao Rasmi</option>
+                <option value="hexagon">Heksagoni Tech</option>
+                <option value="ribbon">Utepe Rasmi</option>
+                <option value="monogram">Monogramu</option>
+                <option value="split">Mstari wa Chapa</option>
               </select>
-              <label className="flex items-center justify-between bg-neutral-900 border border-neutral-700 rounded-lg px-2.5 py-1.5 text-xs text-neutral-300">
-                <span>Rangi Kuu:</span>
+              <label className="flex items-center justify-between bg-neutral-900 border border-neutral-700 rounded-lg px-2 py-1.5 text-[11px] text-neutral-300">
+                <span>Rangi 1</span>
                 <input
                   type="color"
                   value={logoColor}
                   onChange={(e) => setLogoColor(e.target.value)}
-                  className="w-6 h-5 bg-transparent border-0 cursor-pointer"
+                  className="w-5 h-5 bg-transparent border-0 cursor-pointer"
+                />
+              </label>
+              <label className="flex items-center justify-between bg-neutral-900 border border-neutral-700 rounded-lg px-2 py-1.5 text-[11px] text-neutral-300">
+                <span>Rangi 2</span>
+                <input
+                  type="color"
+                  value={logoSecondaryColor}
+                  onChange={(e) => setLogoSecondaryColor(e.target.value)}
+                  className="w-5 h-5 bg-transparent border-0 cursor-pointer"
                 />
               </label>
             </div>
 
-            <div className="flex flex-wrap gap-1">
+            <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto p-1 bg-neutral-900/50 rounded-lg border border-neutral-800">
               {LOGO_EMBLEMS.map((em) => (
                 <button
                   key={em.id}
+                  type="button"
                   onClick={() => setLogoEmblemId(em.id)}
                   className={`px-2 py-1 rounded text-[10px] font-semibold cursor-pointer ${
                     logoEmblemId === em.id
                       ? 'bg-amber-400 text-black'
-                      : 'bg-neutral-900 text-neutral-300 border border-neutral-700'
+                      : 'bg-neutral-900 text-neutral-300 border border-neutral-700 hover:border-neutral-500'
                   }`}
                 >
                   {em.label}
@@ -1059,8 +1849,9 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(({
             </div>
 
             <button
+              type="button"
               onClick={() => {
-                const isSquare = logoStyle === 'emblem' || logoStyle === 'shield';
+                const isSquare = ['emblem', 'shield', 'hexagon', 'monogram'].includes(logoStyle);
                 onAddImage(customLogoPreviewUrl, isSquare ? 240 : 340, isSquare ? 240 : 114);
                 onCloseMobileDrawer();
               }}
@@ -1071,37 +1862,146 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(({
             </button>
           </div>
 
-          {/* 24 Ready Logos */}
-          <div>
-            <span className="text-xs font-semibold text-neutral-300">
-              Nembo 24 Zilizopo Tayari (Gusa Kuweka):
-            </span>
-            <div className="grid grid-cols-2 gap-2 mt-2">
-              {READY_LOGOS.map((logo) => {
-                const isSq = logo.style === 'emblem' || logo.style === 'shield';
-                return (
-                  <button
-                    key={logo.id}
-                    onClick={() => {
-                      onAddImage(logo.dataUrl, isSq ? 220 : 320, isSq ? 220 : 108);
-                      onCloseMobileDrawer();
-                    }}
-                    className="p-2 bg-neutral-800/80 hover:bg-neutral-800 border border-neutral-700 hover:border-amber-400 rounded-xl flex flex-col items-center gap-1.5 cursor-pointer transition-colors"
-                  >
-                    <div className="w-full h-14 flex items-center justify-center bg-neutral-950 rounded-lg p-1.5">
-                      <img
-                        src={logo.dataUrl}
-                        alt={logo.name}
-                        className="max-h-full max-w-full object-contain"
-                      />
-                    </div>
-                    <span className="text-[10px] font-bold text-neutral-200 truncate max-w-full">
-                      {logo.name}
-                    </span>
-                  </button>
-                );
-              })}
+          {/* 1,000 Ready Logos Across 105+ Professions */}
+          <div className="flex flex-col gap-2.5">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-white">
+                Nembo 1,000 za Fani 105+
+              </span>
+              <span className="text-[11px] text-neutral-400">
+                Zimepatikana: <strong className="text-amber-400">{filteredLogos.length}</strong>
+              </span>
             </div>
+
+            {/* Search Logos */}
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 text-neutral-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <input
+                type="text"
+                value={logoSearch}
+                onChange={(e) => setLogoSearch(e.target.value)}
+                placeholder="Tafuta: hospitali, shule, kanisa, ndege, IT, muziki, misitu..."
+                className="w-full bg-neutral-800 border border-neutral-700 rounded-lg pl-8 pr-8 py-2 text-xs text-white placeholder:text-neutral-500 focus:outline-none focus:border-amber-400"
+              />
+              {logoSearch && (
+                <button
+                  type="button"
+                  onClick={() => setLogoSearch('')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-white cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+
+            {/* Profession Dropdown (105+ Fani) */}
+            <select
+              value={logoProfession}
+              onChange={(e) => {
+                setLogoProfession(e.target.value);
+                if (e.target.value !== 'Fani Zote (105+)') {
+                  setLogoCategory('Zote');
+                }
+              }}
+              className="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-2.5 py-2 text-xs text-white focus:outline-none focus:border-amber-400"
+            >
+              {LOGO_PROFESSIONS.map((prof) => (
+                <option key={prof} value={prof}>
+                  Fani: {prof}
+                </option>
+              ))}
+            </select>
+
+            {/* Category Filter Pills */}
+            <div className="flex gap-1.5 overflow-x-auto pb-1 no-scrollbar">
+              {LOGO_CATEGORIES.map((cat) => (
+                <button
+                  key={cat}
+                  type="button"
+                  onClick={() => {
+                    setLogoCategory(cat);
+                    setLogoProfession('Fani Zote (105+)');
+                  }}
+                  className={`px-2.5 py-1 rounded-full text-[11px] font-semibold whitespace-nowrap cursor-pointer transition-colors ${
+                    logoCategory === cat
+                      ? 'bg-amber-400 text-black'
+                      : 'bg-neutral-800 text-neutral-300 border border-neutral-700 hover:border-neutral-500'
+                  }`}
+                >
+                  {cat}
+                </button>
+              ))}
+            </div>
+
+            {/* Logos Grid (Paginated 30 at a time for zero lag) */}
+            {visibleLogos.length === 0 ? (
+              <div className="p-4 text-center bg-neutral-800/40 border border-neutral-800 rounded-xl text-xs text-neutral-400">
+                Hakuna nembo iliyopatikana kwa utafutaji huu. Jaribu neno jingine.
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-2">
+                {visibleLogos.map((logo) => {
+                  const isSq = ['emblem', 'shield', 'hexagon', 'monogram'].includes(logo.style);
+                  return (
+                    <div
+                      key={logo.id}
+                      className="p-2 bg-neutral-800/80 hover:bg-neutral-800 border border-neutral-700 hover:border-amber-400 rounded-xl flex flex-col gap-1.5 transition-colors group"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onAddImage(logo.dataUrl, isSq ? 220 : 320, isSq ? 220 : 108);
+                          onCloseMobileDrawer();
+                        }}
+                        className="w-full flex flex-col items-center gap-1 cursor-pointer text-left"
+                      >
+                        <div className="w-full h-14 flex items-center justify-center bg-neutral-950 rounded-lg p-1.5 overflow-hidden">
+                          <img
+                            src={logo.dataUrl}
+                            alt={logo.name}
+                            loading="lazy"
+                            className="w-full h-full object-contain block"
+                          />
+                        </div>
+                        <span className="text-[10px] font-bold text-neutral-100 truncate w-full text-center">
+                          {logo.name}
+                        </span>
+                      </button>
+                      <div className="flex items-center justify-between gap-1 pt-0.5 border-t border-neutral-700/60">
+                        <span className="text-[9px] text-neutral-400 truncate">
+                          {logo.profession}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setLogoBrandName(logo.name);
+                            setLogoSubtitle(logo.subtitle);
+                            setLogoEmblemId(logo.emblemId);
+                            setLogoColor(logo.primaryColor);
+                            setLogoSecondaryColor(logo.secondaryColor);
+                            setLogoStyle(logo.style);
+                          }}
+                          className="text-[9px] font-bold text-amber-400 hover:text-amber-300 shrink-0 cursor-pointer"
+                          title="Hariri jina au rangi ya nembo hii"
+                        >
+                          Hariri
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {visibleLogos.length < filteredLogos.length && (
+              <button
+                type="button"
+                onClick={() => setLogoVisibleCount((c) => c + 30)}
+                className="w-full py-2.5 bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 text-amber-400 font-bold text-xs rounded-xl cursor-pointer transition-colors"
+              >
+                Onyesha Nembo Zingine (+{Math.min(30, filteredLogos.length - visibleLogos.length)} kati ya {filteredLogos.length - visibleLogos.length})
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -1233,8 +2133,52 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(({
               <div>
                 <h2 className="text-sm font-bold text-white tracking-tight">Rangi &amp; Mandhari</h2>
                 <p className="text-xs text-neutral-400 mt-0.5">
-                  Badilisha rangi ya nyuma au mchanganyiko (gradient).
+                  Pakia picha ya mandhari au badilisha rangi ya nyuma (solid/gradient).
                 </p>
+              </div>
+
+              {/* Background Photo Upload & Overlay Control */}
+              <div className="p-3 bg-neutral-800/60 border border-neutral-700 rounded-xl flex flex-col gap-2.5">
+                <span className="text-xs font-semibold text-neutral-200">
+                  Picha ya Mandhari (Background Photo):
+                </span>
+                <label className="w-full py-2.5 px-3 border border-dashed border-sky-400/60 hover:border-sky-400 rounded-lg bg-sky-500/10 hover:bg-sky-500/15 flex items-center justify-center gap-2 cursor-pointer transition-colors">
+                  <Upload className="w-4 h-4 text-sky-400 shrink-0" />
+                  <span className="text-xs font-bold text-sky-300">
+                    {currentBackground.type === 'image'
+                      ? 'Badili Picha ya Mandhari'
+                      : 'Pakia Picha ya Mandhari'}
+                  </span>
+                  <input type="file" accept="image/*" onChange={handleBgPhotoUpload} className="hidden" />
+                </label>
+                {currentBackground.type === 'image' && (
+                  <div className="flex flex-col gap-2 pt-1">
+                    <label className="flex items-center justify-between gap-2 text-[11px] text-neutral-300">
+                      <span>Giza la Mandhari (Overlay)</span>
+                      <input
+                        type="range"
+                        min={0}
+                        max={0.85}
+                        step={0.05}
+                        value={currentBackground.overlayOpacity ?? 0}
+                        onChange={(e) =>
+                          onChangeBackground({
+                            ...currentBackground,
+                            overlayOpacity: Number(e.target.value)
+                          })
+                        }
+                        className="w-28 accent-amber-400 cursor-pointer"
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => onChangeBackground({ type: 'color', color: '#0f172a' })}
+                      className="w-full py-1.5 rounded-lg bg-red-600/20 hover:bg-red-600/30 border border-red-500/40 text-red-300 text-xs font-semibold cursor-pointer"
+                    >
+                      Ondoa Picha Nyuma
+                    </button>
+                  </div>
+                )}
               </div>
 
               <div>
@@ -1360,42 +2304,99 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(({
 
           {appearanceSubTab === 'effects' && (
             <div className="flex flex-col gap-3">
-              <div>
-                <h2 className="text-sm font-bold text-white tracking-tight">
-                  Athari za Rangi ya Bango Zima
-                </h2>
-                <p className="text-xs text-neutral-400 mt-0.5">
-                  Badilisha mwanga na hisia za bango zima papo hapo (inaonekana hadi kwenye 4K Download).
-                </p>
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <h2 className="text-sm font-bold text-white tracking-tight">
+                    Athari 500 za Rangi
+                  </h2>
+                  <p className="text-[11px] text-neutral-400 mt-0.5">
+                    Badilisha mwanga na hisia za bango zima hadi kwenye 4K Download.
+                  </p>
+                </div>
+                <span className="font-mono text-[10px] font-bold text-amber-300 bg-amber-500/10 border border-amber-500/30 px-2 py-0.5 rounded-md shrink-0">
+                  {filteredEffects.length}
+                </span>
+              </div>
+
+              <div className="relative">
+                <Search className="w-4 h-4 text-neutral-400 absolute left-3 top-2.5" />
+                <input
+                  type="text"
+                  placeholder="Tafuta athari (mf: Dhahabu, Neon, Noir, Vintage)..."
+                  value={effectSearch}
+                  onChange={(e) => setEffectSearch(e.target.value)}
+                  className="w-full bg-neutral-800 border border-neutral-700 rounded-lg pl-9 pr-3 py-2 text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-amber-400"
+                />
+              </div>
+
+              <div className="flex flex-wrap gap-1.5">
+                {(
+                  [
+                    'Zote',
+                    'Asili & Sinema',
+                    'Joto & Dhahabu',
+                    'Baridi & Bahari',
+                    'Zamani (Vintage)',
+                    'Neon & Usiku',
+                    'Nyeusi & Nyeupe',
+                    'Kifahari & Chapa'
+                  ] as ColorEffectCategory[]
+                ).map((cat) => (
+                  <button
+                    key={cat}
+                    type="button"
+                    onClick={() => setEffectCategory(cat)}
+                    className={`px-2 py-1 rounded-md text-[10px] font-semibold cursor-pointer transition-colors ${
+                      effectCategory === cat
+                        ? 'bg-amber-400 text-black'
+                        : 'bg-neutral-800 text-neutral-300 hover:bg-neutral-700'
+                    }`}
+                  >
+                    {cat}
+                  </button>
+                ))}
               </div>
 
               <div className="grid grid-cols-2 gap-2">
-                {COLOR_EFFECT_PRESETS.map((eff) => {
+                {visibleEffects.map((eff) => {
                   const isActive = (currentColorEffect || 'none') === eff.id;
                   return (
                     <button
                       key={eff.id}
                       onClick={() => onChangeColorEffect(eff.id)}
-                      className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer flex flex-col gap-1.5 ${
+                      className={`p-2 rounded-xl border text-left transition-all cursor-pointer flex flex-col gap-1 ${
                         isActive
                           ? 'border-amber-400 bg-amber-400/10'
                           : 'border-neutral-700 bg-neutral-800/80 hover:border-neutral-500'
                       }`}
                     >
                       <div
-                        className="w-full h-8 rounded-lg flex items-center justify-end px-2"
+                        className="w-full h-7 rounded-lg flex items-center justify-end px-1.5"
                         style={{ background: eff.swatch }}
                       >
-                        {isActive && <Check className="w-4 h-4 text-white drop-shadow" />}
+                        {isActive && <Check className="w-3.5 h-3.5 text-white drop-shadow" />}
                       </div>
-                      <span className="text-xs font-bold text-white leading-tight">{eff.label}</span>
-                      <span className="text-[10px] text-neutral-400 leading-tight line-clamp-2">
-                        {eff.desc}
+                      <span className="text-[11px] font-bold text-white leading-tight truncate">
+                        {eff.label}
+                      </span>
+                      <span className="text-[9px] text-neutral-400 leading-tight line-clamp-1">
+                        {eff.category}
                       </span>
                     </button>
                   );
                 })}
               </div>
+
+              {effectVisibleCount < filteredEffects.length && (
+                <button
+                  type="button"
+                  onClick={() => setEffectVisibleCount((prev) => prev + 40)}
+                  className="w-full py-2.5 rounded-xl bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 text-xs font-bold text-amber-300 cursor-pointer transition-colors"
+                >
+                  Onyesha Athari Zingine (+{Math.min(40, filteredEffects.length - effectVisibleCount)} kati ya{' '}
+                  {filteredEffects.length - effectVisibleCount})
+                </button>
+              )}
             </div>
           )}
 
@@ -1566,9 +2567,9 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(({
         </div>
       </div>
 
-      {/* MOBILE VIEW: Bottom Sheet Drawer (kept mounted to preserve scroll position) + Fixed Bottom Tool Dock */}
+      {/* MOBILE VIEW: Bottom Sheet Drawer (kept mounted to preserve scroll position) + 2-Row 10-Tool Bottom Dock */}
       <div
-        className={`md:hidden fixed inset-0 bottom-16 z-30 flex-col justify-end overscroll-none ${
+        className={`md:hidden fixed inset-0 bottom-[104px] z-30 flex-col justify-end overscroll-none ${
           isMobileDrawerOpen ? 'flex' : 'hidden pointer-events-none'
         }`}
         aria-hidden={!isMobileDrawerOpen}
@@ -1579,7 +2580,7 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(({
         <div
           onClick={(e) => e.stopPropagation()}
           onPointerDown={(e) => e.stopPropagation()}
-          className="bg-neutral-900 border-t border-neutral-800 rounded-t-3xl shadow-2xl max-h-[68dvh] flex flex-col overflow-hidden overscroll-contain"
+          className="bg-neutral-900 border-t border-neutral-800 rounded-t-3xl shadow-2xl max-h-[60dvh] flex flex-col overflow-hidden overscroll-contain"
         >
           {/* Drag handle + header */}
           <div className="px-4 pt-2.5 pb-2 border-b border-neutral-800/80 flex items-center justify-between shrink-0">
@@ -1597,7 +2598,7 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(({
             </button>
           </div>
 
-          {/* Mobile "+ Ongeza" 5-tool Switcher (Maneno · Maumbo · Nembo · Picha · QR) */}
+          {/* Mobile Quick Tool Switcher inside add-element tabs */}
           {['text', 'shapes', 'logos', 'photos', 'qr'].includes(activeTab) && (
             <div className="grid grid-cols-5 gap-1 px-3 pt-2.5 pb-1 shrink-0 bg-neutral-900">
               {[
@@ -1637,68 +2638,112 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(({
         </div>
       </div>
 
-      {/* Mobile Bottom Tool Bar (5-column native app tab bar, 0 horizontal clipping) */}
+      {/* Mobile Bottom Tool Dock: 2 Rows × 5 Columns — 100% of studio tools visible without scrolling */}
       <nav
-        aria-label="Zana za Bango"
-        className="md:hidden fixed bottom-0 left-0 right-0 h-16 bg-neutral-950/95 backdrop-blur-md border-t border-neutral-800 z-40 grid grid-cols-5 items-center px-1 gap-0.5 pb-[env(safe-area-inset-bottom)]"
+        aria-label="Zana Zote za Bango"
+        className="md:hidden fixed bottom-0 left-0 right-0 h-[104px] bg-neutral-950/95 backdrop-blur-md border-t border-neutral-800 z-40 grid grid-cols-5 grid-rows-2 items-center px-1 py-1 gap-0.5 pb-[env(safe-area-inset-bottom)]"
       >
         {[
           {
+            key: 'templates',
             id: 'templates' as SidebarTab,
             label: 'Violezo',
             icon: LayoutTemplate,
             isActive: isMobileDrawerOpen && activeTab === 'templates'
           },
           {
+            key: 'text',
+            id: 'text' as SidebarTab,
+            label: 'Maneno',
+            icon: Type,
+            isActive: isMobileDrawerOpen && activeTab === 'text'
+          },
+          {
+            key: 'shapes',
+            id: 'shapes' as SidebarTab,
+            label: 'Maumbo',
+            icon: Shapes,
+            isActive: isMobileDrawerOpen && activeTab === 'shapes'
+          },
+          {
+            key: 'photos',
+            id: 'photos' as SidebarTab,
+            label: 'Picha',
+            icon: ImageIcon,
+            isActive: isMobileDrawerOpen && activeTab === 'photos'
+          },
+          {
+            key: 'logos',
+            id: 'logos' as SidebarTab,
+            label: 'Nembo',
+            icon: Award,
+            isActive: isMobileDrawerOpen && activeTab === 'logos'
+          },
+          {
+            key: 'charts',
             id: 'charts' as SidebarTab,
             label: 'Grafu 16',
             icon: BarChart3,
             isActive: isMobileDrawerOpen && activeTab === 'charts'
           },
           {
-            id: (['text', 'shapes', 'logos', 'photos', 'qr'].includes(activeTab)
-              ? activeTab
-              : 'text') as SidebarTab,
-            label: 'Ongeza',
-            icon: Plus,
-            isActive:
-              isMobileDrawerOpen &&
-              ['text', 'shapes', 'logos', 'photos', 'qr'].includes(activeTab),
-            isPrimaryAdd: true
-          },
-          {
+            key: 'concepts50',
             id: 'concepts50' as SidebarTab,
             label: 'Dhana 50',
             icon: LayoutGrid,
             isActive: isMobileDrawerOpen && activeTab === 'concepts50'
           },
           {
+            key: 'qr',
+            id: 'qr' as SidebarTab,
+            label: 'QR Code',
+            icon: QrCode,
+            isActive: isMobileDrawerOpen && activeTab === 'qr'
+          },
+          {
+            key: 'effects',
             id: 'background' as SidebarTab,
+            subTab: 'effects' as const,
             label: 'Athari',
-            icon: Palette,
-            isActive: isMobileDrawerOpen && activeTab === 'background'
+            icon: Sparkles,
+            isActive:
+              isMobileDrawerOpen &&
+              activeTab === 'background' &&
+              (appearanceSubTab === 'effects' || appearanceSubTab === 'bg')
+          },
+          {
+            key: 'watermark',
+            id: 'background' as SidebarTab,
+            subTab: 'watermark' as const,
+            label: 'Watermark',
+            icon: Stamp,
+            isActive:
+              isMobileDrawerOpen &&
+              activeTab === 'background' &&
+              appearanceSubTab === 'watermark'
           }
         ].map((tab) => {
           const Icon = tab.icon;
           return (
             <button
-              key={tab.label}
+              key={tab.key}
               onClick={() => {
                 if (tab.isActive) {
                   onCloseMobileDrawer();
                 } else {
+                  if (tab.subTab) {
+                    setAppearanceSubTab(tab.subTab);
+                  }
                   onOpenMobileDrawer(tab.id);
                 }
               }}
-              className={`min-h-[48px] py-1 px-1 rounded-xl flex flex-col items-center justify-center gap-0.5 transition-colors cursor-pointer touch-manipulation ${
+              className={`h-full w-full py-1 px-0.5 rounded-lg flex flex-col items-center justify-center gap-0.5 transition-colors cursor-pointer touch-manipulation ${
                 tab.isActive
-                  ? 'bg-neutral-800 text-amber-400 font-semibold'
-                  : tab.isPrimaryAdd
-                    ? 'text-amber-400 hover:bg-neutral-900'
-                    : 'text-neutral-400 hover:text-white'
+                  ? 'bg-neutral-800 text-amber-400 font-bold'
+                  : 'text-neutral-300 hover:text-white active:bg-neutral-900'
               }`}
             >
-              <Icon className="w-5 h-5 stroke-[2.2]" />
+              <Icon className="w-4 h-4 stroke-[2.2]" />
               <span className="text-[10px] leading-tight truncate max-w-full">{tab.label}</span>
             </button>
           );
@@ -1716,9 +2761,350 @@ const ShapeThumb = React.memo<{ shape: ShapeType }>(({ shape }) => {
   if (def?.pathData) {
     return (
       <svg className="w-6 h-6" viewBox="0 0 100 100">
-        <path d={def.pathData} fill="#fbbf24" fillRule="evenodd" />
+        <path
+          d={def.pathData}
+          fill={shape === 'verified-badge' ? '#1d9bf0' : '#fbbf24'}
+          fillRule="evenodd"
+        />
+        {shape === 'verified-badge' && (
+          <path
+            d="M 30,52 L 44,66 L 71,35"
+            fill="none"
+            stroke="#ffffff"
+            strokeWidth="11"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        )}
       </svg>
     );
   }
   return <div className="w-6 h-6 bg-amber-400 rounded-sm" />;
 });
+
+const TemplateMiniPreview = React.memo<{ template: PosterTemplate }>(({ template }) => {
+  const { width: W, height: H, background, elements, colorEffect } = template;
+
+  const bgStyle: React.CSSProperties =
+    background.type === 'color'
+      ? { backgroundColor: background.color || '#0f172a' }
+      : background.type === 'gradient' && background.gradient
+        ? {
+            background: `linear-gradient(${background.gradient.angle ?? 160}deg, ${background.gradient.stops
+              .map((s) => `${s.color} ${Math.round(s.offset * 100)}%`)
+              .join(', ')})`
+          }
+        : background.type === 'image' && background.imageUrl
+          ? {
+              backgroundImage: `url(${background.imageUrl})`,
+              backgroundSize: 'cover',
+              backgroundPosition: 'center'
+            }
+          : { backgroundColor: '#0f172a' };
+
+  const effectDef = colorEffect && colorEffect !== 'none' ? COLOR_EFFECT_MAP[colorEffect] : undefined;
+  const visibleElements = elements.slice(0, 12);
+
+  return (
+    <div className="w-full h-full bg-neutral-950 p-1.5 pb-6 flex items-center justify-center relative overflow-hidden">
+      {/* Aspect-Ratio Accurate Miniature Stage */}
+      <div
+        className="relative overflow-hidden rounded shadow-md border border-white/10 group-hover:scale-[1.03] transition-transform duration-300"
+        style={{
+          aspectRatio: `${W} / ${H}`,
+          width: W >= H ? '100%' : 'auto',
+          height: H > W ? '100%' : 'auto',
+          maxWidth: '100%',
+          maxHeight: '100%',
+          ...bgStyle
+        }}
+      >
+        {background.type === 'image' && background.overlayOpacity && (
+          <div
+            className="absolute inset-0 pointer-events-none"
+            style={{ backgroundColor: '#000000', opacity: background.overlayOpacity }}
+          />
+        )}
+
+        {visibleElements.map((el) => {
+          const left = `${(el.x / W) * 100}%`;
+          const top = `${(el.y / H) * 100}%`;
+          const width = `${(el.width / W) * 100}%`;
+          const height = `${(el.height / H) * 100}%`;
+          const transform = el.rotation ? `rotate(${el.rotation}deg)` : undefined;
+          const opacity = el.opacity ?? 1;
+
+          if (el.type === 'shape') {
+            const se = el as ShapeElement;
+            if (se.shapeType === 'frame-border') {
+              return (
+                <div
+                  key={el.id}
+                  className="absolute pointer-events-none"
+                  style={{
+                    left,
+                    top,
+                    width,
+                    height,
+                    transform,
+                    opacity,
+                    border: `1.5px solid ${se.strokeColor || se.fillColor || '#fbbf24'}`
+                  }}
+                />
+              );
+            }
+            const shapeDef = SHAPES_100_MAP[se.shapeType];
+            if (shapeDef?.pathData && se.shapeType !== 'rectangle') {
+              return (
+                <svg
+                  key={el.id}
+                  viewBox="0 0 100 100"
+                  preserveAspectRatio="none"
+                  className="absolute pointer-events-none"
+                  style={{ left, top, width, height, transform, opacity }}
+                >
+                  <path
+                    d={shapeDef.pathData}
+                    fill={se.fillColor || (se.shapeType === 'verified-badge' ? '#1d9bf0' : '#fbbf24')}
+                    fillRule="evenodd"
+                  />
+                  {se.shapeType === 'verified-badge' && (
+                    <path
+                      d="M 30,52 L 44,66 L 71,35"
+                      fill="none"
+                      stroke="#ffffff"
+                      strokeWidth="10"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  )}
+                </svg>
+              );
+            }
+            return (
+              <div
+                key={el.id}
+                className="absolute pointer-events-none"
+                style={{
+                  left,
+                  top,
+                  width,
+                  height,
+                  transform,
+                  opacity,
+                  backgroundColor: se.fillColor === 'transparent' ? 'transparent' : se.fillColor,
+                  borderRadius: se.borderRadius ? '3px' : undefined,
+                  border: se.strokeColor ? `1px solid ${se.strokeColor}` : undefined
+                }}
+              />
+            );
+          }
+
+          if (el.type === 'image') {
+            const ie = el as ImageElement;
+            const br = ie.borderRadius ? `${Math.min(999, Math.round(ie.borderRadius / 8))}px` : undefined;
+            if (ie.cropRect) {
+              const c = ie.cropRect;
+              return (
+                <div
+                  key={el.id}
+                  className="absolute overflow-hidden pointer-events-none"
+                  style={{ left, top, width, height, transform, opacity, borderRadius: br }}
+                >
+                  <img
+                    src={ie.src}
+                    alt=""
+                    loading="lazy"
+                    decoding="async"
+                    className="max-w-none max-h-none pointer-events-none"
+                    style={{
+                      position: 'absolute',
+                      width: `${(100 / c.w).toFixed(2)}%`,
+                      height: `${(100 / c.h).toFixed(2)}%`,
+                      left: `${(-(c.x / c.w) * 100).toFixed(2)}%`,
+                      top: `${(-(c.y / c.h) * 100).toFixed(2)}%`,
+                      objectFit: 'fill'
+                    }}
+                  />
+                </div>
+              );
+            }
+            return (
+              <img
+                key={el.id}
+                src={ie.src}
+                alt=""
+                loading="lazy"
+                decoding="async"
+                className="absolute object-cover pointer-events-none"
+                style={{
+                  left,
+                  top,
+                  width,
+                  height,
+                  transform,
+                  opacity,
+                  borderRadius: br
+                }}
+              />
+            );
+          }
+
+          if (el.type === 'text') {
+            const te = el as TextElement;
+            const scaledFont = Math.max(4.5, Math.min(13, (te.fontSize / H) * 145));
+            return (
+              <div
+                key={el.id}
+                className="absolute overflow-hidden pointer-events-none leading-[1.08]"
+                style={{
+                  left,
+                  top,
+                  width,
+                  height,
+                  transform,
+                  opacity,
+                  color: te.color,
+                  fontSize: `${scaledFont}px`,
+                  fontWeight: te.fontWeight,
+                  fontStyle: te.fontStyle,
+                  fontFamily: `"${te.fontFamily}", sans-serif`,
+                  textAlign: te.textAlign,
+                  backgroundColor: te.backgroundColor,
+                  borderRadius: te.backgroundColor ? '2px' : undefined,
+                  padding: te.backgroundColor ? '1px 2px' : undefined
+                }}
+              >
+                {te.text}
+              </div>
+            );
+          }
+
+          if (el.type === 'badge') {
+            const be = el as BadgeElement;
+            return (
+              <div
+                key={el.id}
+                className="absolute rounded-full flex items-center justify-center px-1 overflow-hidden pointer-events-none font-bold"
+                style={{
+                  left,
+                  top,
+                  width,
+                  height,
+                  transform,
+                  opacity,
+                  backgroundColor: be.bgColor,
+                  color: be.textColor,
+                  fontSize: '5.5px'
+                }}
+              >
+                <span className="truncate">{be.text}</span>
+              </div>
+            );
+          }
+
+          if (el.type === 'chart') {
+            const ce = el as ChartElement;
+            const accent = ce.data?.[0]?.color || ce.colorPalette?.[0] || '#fbbf24';
+            const accent2 = ce.data?.[1]?.color || ce.colorPalette?.[1] || '#38bdf8';
+            const isRound =
+              ce.chartType === 'pie' ||
+              ce.chartType === 'donut' ||
+              ce.chartType === 'semi-donut' ||
+              ce.chartType === 'progress-ring' ||
+              ce.chartType === 'radar';
+
+            return (
+              <div
+                key={el.id}
+                className="absolute rounded p-1 flex flex-col justify-between overflow-hidden pointer-events-none"
+                style={{
+                  left,
+                  top,
+                  width,
+                  height,
+                  transform,
+                  opacity,
+                  backgroundColor:
+                    ce.backgroundColor === 'transparent'
+                      ? 'rgba(15,23,42,0.55)'
+                      : ce.backgroundColor || 'rgba(15,23,42,0.85)',
+                  border: '1px solid rgba(255,255,255,0.12)'
+                }}
+              >
+                <div
+                  className="h-1 w-2/3 rounded-full"
+                  style={{ backgroundColor: ce.textColor || '#ffffff', opacity: 0.75 }}
+                />
+                {isRound ? (
+                  <div className="flex-1 flex items-center justify-center">
+                    <div
+                      className="w-6 h-6 rounded-full border-[3px]"
+                      style={{
+                        borderColor: accent,
+                        borderRightColor: accent2,
+                        borderBottomColor: '#22c55e'
+                      }}
+                    />
+                  </div>
+                ) : ce.chartType === 'line' || ce.chartType === 'area' || ce.chartType === 'spline' ? (
+                  <svg viewBox="0 0 60 28" className="w-full flex-1">
+                    <polyline
+                      fill="none"
+                      stroke={accent}
+                      strokeWidth="3"
+                      points="2,24 16,15 30,19 44,8 58,4"
+                    />
+                  </svg>
+                ) : (
+                  <div className="flex items-end gap-0.5 flex-1 pt-1">
+                    <div className="flex-1 rounded-t-xs h-[45%]" style={{ backgroundColor: accent }} />
+                    <div className="flex-1 rounded-t-xs h-[78%]" style={{ backgroundColor: accent2 }} />
+                    <div className="flex-1 rounded-t-xs h-[60%]" style={{ backgroundColor: accent }} />
+                    <div className="flex-1 rounded-t-xs h-[95%]" style={{ backgroundColor: '#22c55e' }} />
+                  </div>
+                )}
+              </div>
+            );
+          }
+
+          if (el.type === 'qrcode') {
+            return (
+              <div
+                key={el.id}
+                className="absolute bg-white p-0.5 rounded-xs grid grid-cols-3 gap-[1px] pointer-events-none"
+                style={{ left, top, width, height, transform, opacity }}
+              >
+                {[1, 1, 1, 1, 0, 1, 1, 1, 0].map((v, i) => (
+                  <div key={i} className={v ? 'bg-black' : 'bg-white'} />
+                ))}
+              </div>
+            );
+          }
+
+          return null;
+        })}
+
+        {effectDef?.overlayColor && (
+          <div
+            className="absolute inset-0 pointer-events-none"
+            style={{
+              backgroundColor: effectDef.overlayColor,
+              opacity: effectDef.overlayAlpha ?? 0.16,
+              mixBlendMode: (effectDef.overlayBlend || 'soft-light') as React.CSSProperties['mixBlendMode']
+            }}
+          />
+        )}
+      </div>
+
+      {/* Top-right category tag */}
+      <span
+        className="absolute top-1.5 right-1.5 text-[8px] font-extrabold px-1.5 py-0.5 rounded text-black uppercase tracking-wider shadow pointer-events-none"
+        style={{ backgroundColor: template.previewAccent || '#fbbf24' }}
+      >
+        {template.previewBadge || template.categoryLabelSwahili.slice(0, 7)}
+      </span>
+    </div>
+  );
+});
+
