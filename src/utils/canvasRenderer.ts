@@ -18,17 +18,28 @@ const imageCache = new Map<string, HTMLImageElement>();
 
 export function preloadImage(src: string): Promise<HTMLImageElement> {
   if (imageCache.has(src)) {
-    return Promise.resolve(imageCache.get(src)!);
+    const cached = imageCache.get(src)!;
+    if (cached.complete && cached.naturalWidth > 0) {
+      return Promise.resolve(cached);
+    }
   }
   return new Promise((resolve) => {
     const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.onload = () => {
+    if (/^https?:\/\//i.test(src)) {
+      img.crossOrigin = 'anonymous';
+    }
+    img.onload = async () => {
+      try {
+        if (typeof img.decode === 'function') {
+          await img.decode();
+        }
+      } catch {
+        // Ignore decode warning if already decoded
+      }
       imageCache.set(src, img);
       resolve(img);
     };
     img.onerror = () => {
-      // Fallback
       const fallback = new Image();
       fallback.src =
         'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
@@ -225,6 +236,75 @@ async function drawElement(ctx: CanvasRenderingContext2D, el: PosterElement) {
   }
 }
 
+function wrapCanvasText(
+  ctx: CanvasRenderingContext2D,
+  rawText: string,
+  maxWidth: number
+): string[] {
+  const paragraphs = (rawText || '').split('\n');
+  const wrapped: string[] = [];
+
+  for (const para of paragraphs) {
+    if (para === '') {
+      wrapped.push('');
+      continue;
+    }
+
+    // If single line already fits inside box width, keep exact string
+    if (ctx.measureText(para).width <= maxWidth) {
+      wrapped.push(para);
+      continue;
+    }
+
+    const tokens = para.split(/(\s+)/);
+    let currentLine = '';
+
+    for (const token of tokens) {
+      if (!token) continue;
+      const candidate = currentLine + token;
+      if (ctx.measureText(candidate).width <= maxWidth) {
+        currentLine = candidate;
+      } else if (currentLine.trim().length > 0) {
+        wrapped.push(currentLine.trimEnd());
+        const trimmedToken = token.trimStart();
+        if (ctx.measureText(trimmedToken).width <= maxWidth) {
+          currentLine = trimmedToken;
+        } else {
+          // Break single extra-long word/URL by character
+          let chunk = '';
+          for (const ch of trimmedToken) {
+            if (ctx.measureText(chunk + ch).width > maxWidth && chunk.length > 0) {
+              wrapped.push(chunk);
+              chunk = ch;
+            } else {
+              chunk += ch;
+            }
+          }
+          currentLine = chunk;
+        }
+      } else {
+        // First token alone exceeds maxWidth
+        let chunk = '';
+        for (const ch of token) {
+          if (ctx.measureText(chunk + ch).width > maxWidth && chunk.length > 0) {
+            wrapped.push(chunk);
+            chunk = ch;
+          } else {
+            chunk += ch;
+          }
+        }
+        currentLine = chunk;
+      }
+    }
+
+    if (currentLine.length > 0) {
+      wrapped.push(currentLine.trimEnd());
+    }
+  }
+
+  return wrapped;
+}
+
 function drawText(
   ctx: CanvasRenderingContext2D,
   el: TextElement,
@@ -233,10 +313,10 @@ function drawText(
   w: number,
   h: number
 ) {
-  if (el.backgroundColor) {
+  if (el.backgroundColor && el.backgroundColor !== 'transparent') {
     ctx.fillStyle = el.backgroundColor;
     const r = el.borderRadius || 0;
-    roundRect(ctx, x, y, w, h, r);
+    roundRect(ctx, x, y, w, h, Math.min(r, Math.min(w, h) / 2));
     ctx.fill();
   }
 
@@ -261,22 +341,26 @@ function drawText(
     ctx.shadowBlur = 0;
   }
 
-  const lines = (el.text || '').split('\n');
+  const padX = w >= 60 ? 4 : 0;
+  const padY = h >= 44 ? 4 : 0;
+  const maxWrapW = Math.max(12, w - padX * 2);
+  const lines = wrapCanvasText(ctx, el.text || '', maxWrapW);
   const lineH = size * (el.lineHeight || 1.2);
+  const halfLeading = Math.max(0, (lineH - size) / 2);
 
   lines.forEach((line, index) => {
-    const lineY = y + index * lineH;
-    let lineX = x;
+    const lineY = y + padY + halfLeading + index * lineH;
+    let lineX = x + padX;
 
     if (el.textAlign === 'center') {
       ctx.textAlign = 'center';
       lineX = x + w / 2;
     } else if (el.textAlign === 'right') {
       ctx.textAlign = 'right';
-      lineX = x + w;
+      lineX = x + w - padX;
     } else {
       ctx.textAlign = 'left';
-      lineX = x;
+      lineX = x + padX;
     }
 
     if (el.strokeColor && el.strokeWidth && el.strokeWidth > 0) {
@@ -502,11 +586,11 @@ function drawImage(
     ctx.filter = filters.join(' ');
   }
 
-  if (el.cropRect) {
-    const sx = Math.max(0, el.cropRect.x * img.width);
-    const sy = Math.max(0, el.cropRect.y * img.height);
-    const sw = Math.max(1, el.cropRect.w * img.width);
-    const sh = Math.max(1, el.cropRect.h * img.height);
+  if (el.cropRect && img.width > 0 && img.height > 0) {
+    const sx = Math.max(0, Math.min(img.width - 1, el.cropRect.x * img.width));
+    const sy = Math.max(0, Math.min(img.height - 1, el.cropRect.y * img.height));
+    const sw = Math.max(1, Math.min(img.width - sx, el.cropRect.w * img.width));
+    const sh = Math.max(1, Math.min(img.height - sy, el.cropRect.h * img.height));
     ctx.drawImage(img, sx, sy, sw, sh, x, y, w, h);
   } else if (el.objectFit === 'contain') {
     const imgRatio = img.width / Math.max(1, img.height);
@@ -1753,13 +1837,28 @@ export async function downloadPosterAsImage(
   const canvas = await renderPosterToCanvas(project, scale, transparentBg);
 
   const mimeType = format === 'png' ? 'image/png' : 'image/jpeg';
-  const dataUrl = canvas.toDataURL(mimeType, quality);
-
   const cleanTitle = (project.title || 'malosha_poster')
     .toLowerCase()
     .replace(/[^a-z0-9_-]/g, '_');
   const filename = `${cleanTitle}_${scale}x_${Date.now()}.${format}`;
 
+  const blob = await new Promise<Blob | null>((resolve) => {
+    canvas.toBlob((b) => resolve(b), mimeType, quality);
+  });
+
+  if (blob) {
+    const objectUrl = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = objectUrl;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 15000);
+    return;
+  }
+
+  const dataUrl = canvas.toDataURL(mimeType, quality);
   const link = document.createElement('a');
   link.href = dataUrl;
   link.download = filename;

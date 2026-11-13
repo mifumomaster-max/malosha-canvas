@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { X } from 'lucide-react';
 import { Header } from './components/Header';
 import { WorkspaceToolbar } from './components/WorkspaceToolbar';
 import { Sidebar, SidebarTab } from './components/Sidebar';
@@ -329,14 +330,119 @@ export default function App() {
     setIsSaved(true);
   }, []);
 
-  // Change Dimension
+  // Change Dimension (Proportionally refits existing template elements so nothing gets cropped)
   const handleDimensionChange = useCallback(
     (w: number, h: number) => {
       const cur = projectRef.current;
+      if (cur.width === w && cur.height === h) return;
+
+      const fitScale = Math.min(w / cur.width, h / cur.height);
+      const offsetX = (w - cur.width * fitScale) / 2;
+      const offsetY = (h - cur.height * fitScale) / 2;
+
+      const scaledElements: PosterElement[] = cur.elements.map((el) => {
+        const isFullWidthShape =
+          el.type === 'shape' && el.x <= 4 && el.width >= cur.width - 8;
+        const isFullHeightShape =
+          el.type === 'shape' && el.y <= 4 && el.height >= cur.height - 8;
+        const isFullCanvasImage =
+          el.type === 'image' &&
+          el.x <= 4 &&
+          el.y <= 4 &&
+          el.width >= cur.width - 8 &&
+          el.height >= cur.height - 8;
+
+        const nextX =
+          isFullWidthShape || isFullCanvasImage
+            ? 0
+            : Math.round(el.x * fitScale + offsetX);
+        const nextY =
+          isFullHeightShape || isFullCanvasImage
+            ? 0
+            : Math.round(el.y * fitScale + offsetY);
+        const nextW =
+          isFullWidthShape || isFullCanvasImage
+            ? w
+            : Math.max(20, Math.round(el.width * fitScale));
+        const nextH =
+          isFullHeightShape || isFullCanvasImage
+            ? h
+            : Math.max(8, Math.round(el.height * fitScale));
+
+        if (el.type === 'text') {
+          return {
+            ...el,
+            x: nextX,
+            y: nextY,
+            width: nextW,
+            height: nextH,
+            fontSize: Math.max(10, Math.round(el.fontSize * fitScale)),
+            borderRadius: el.borderRadius
+              ? Math.round(el.borderRadius * fitScale)
+              : undefined,
+            strokeWidth: el.strokeWidth
+              ? Math.max(1, Math.round(el.strokeWidth * fitScale))
+              : undefined
+          };
+        }
+
+        if (el.type === 'badge') {
+          return {
+            ...el,
+            x: nextX,
+            y: nextY,
+            width: nextW,
+            height: nextH,
+            fontSize: Math.max(10, Math.round((el.fontSize || 16) * fitScale))
+          };
+        }
+
+        if (el.type === 'shape') {
+          return {
+            ...el,
+            x: nextX,
+            y: nextY,
+            width: nextW,
+            height: nextH,
+            borderRadius: el.borderRadius
+              ? Math.round(el.borderRadius * fitScale)
+              : undefined,
+            strokeWidth: el.strokeWidth
+              ? Math.max(1, Math.round(el.strokeWidth * fitScale))
+              : undefined
+          };
+        }
+
+        if (el.type === 'image') {
+          return {
+            ...el,
+            x: nextX,
+            y: nextY,
+            width: nextW,
+            height: nextH,
+            borderRadius: el.borderRadius
+              ? Math.round(el.borderRadius * fitScale)
+              : undefined,
+            borderWidth: el.borderWidth
+              ? Math.max(1, Math.round(el.borderWidth * fitScale))
+              : undefined
+          };
+        }
+
+        return {
+          ...el,
+          x: nextX,
+          y: nextY,
+          width: nextW,
+          height: nextH
+        };
+      });
+
       pushState({
         ...cur,
         width: w,
         height: h,
+        elements: scaledElements,
         updatedAt: Date.now()
       });
     },
@@ -1190,6 +1296,39 @@ export default function App() {
         elementCount={project.elements.length}
       />
 
+      {/* Top System Notification Banner (Non-floating, sits cleanly inside top bar) */}
+      {studioNotice && (
+        <div className="bg-neutral-900 border-b border-emerald-500/40 px-3 md:px-4 py-1.5 flex items-center justify-between gap-2 text-xs shrink-0 z-20">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
+            <span className="text-neutral-100 font-semibold truncate">{studioNotice.message}</span>
+          </div>
+          <div className="flex items-center gap-1.5 shrink-0">
+            {studioNotice.canUndo && (
+              <button
+                type="button"
+                onClick={() => {
+                  handleUndo();
+                  setStudioNotice(null);
+                }}
+                className="px-2.5 py-0.5 rounded-md bg-amber-400 hover:bg-amber-300 text-black font-extrabold text-[11px] cursor-pointer transition-colors"
+              >
+                Tendua (Undo)
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setStudioNotice(null)}
+              className="p-1 rounded hover:bg-neutral-800 text-neutral-400 hover:text-white cursor-pointer transition-colors"
+              aria-label="Funga ujumbe"
+              title="Funga ujumbe"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* 3. Secondary Contextual Property Toolbar */}
       <PropertyToolbar
         selectedElement={selectedElement}
@@ -1259,9 +1398,6 @@ export default function App() {
           selectedId={selectedId}
           onSelectElement={handleSelectElement}
           onUpdateElement={handleUpdateElement}
-          onDeleteElement={handleDeleteElement}
-          onDuplicateElement={handleDuplicateElement}
-          onToggleLockElement={handleToggleLockElement}
           onCommitEdit={handleCommitEdit}
           zoom={zoom}
           showGrid={showGrid}
@@ -1270,26 +1406,6 @@ export default function App() {
           onQuickStartAction={handleQuickStartFromEmptyCanvas}
         />
       </div>
-
-      {/* Studio Toast Notification */}
-      {studioNotice && (
-        <div className="fixed bottom-28 md:bottom-6 left-1/2 -translate-x-1/2 z-50 bg-neutral-900 border border-emerald-500/60 text-white text-xs font-bold px-3.5 py-2 rounded-full shadow-2xl flex items-center gap-2.5">
-          <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
-          <span>{studioNotice.message}</span>
-          {studioNotice.canUndo && (
-            <button
-              type="button"
-              onClick={() => {
-                handleUndo();
-                setStudioNotice(null);
-              }}
-              className="px-2.5 py-0.5 rounded-full bg-amber-400 hover:bg-amber-300 text-black font-extrabold text-[11px] cursor-pointer transition-colors"
-            >
-              Tendua (Undo)
-            </button>
-          )}
-        </div>
-      )}
 
       {/* Modals */}
       <NewCanvasModal

@@ -14,16 +14,12 @@ import {
 import { drawChart } from '../utils/canvasRenderer';
 import { SHAPES_100_MAP } from '../data/shapes100';
 import { COLOR_EFFECT_MAP } from '../data/colorEffects';
-import { Trash2, Copy, Lock, Unlock, Edit3 } from 'lucide-react';
 
 interface CanvasAreaProps {
   project: PosterProject;
   selectedId: string | null;
   onSelectElement: (id: string | null) => void;
   onUpdateElement: (updated: Partial<PosterElement>, commit?: boolean) => void;
-  onDeleteElement?: (id: string) => void;
-  onDuplicateElement?: (id: string) => void;
-  onToggleLockElement?: (id: string) => void;
   onCommitEdit?: () => void;
   zoom: number;
   showGrid: boolean;
@@ -39,9 +35,6 @@ export const CanvasArea: React.FC<CanvasAreaProps> = React.memo(({
   selectedId,
   onSelectElement,
   onUpdateElement,
-  onDeleteElement,
-  onDuplicateElement,
-  onToggleLockElement,
   onCommitEdit,
   zoom,
   showGrid,
@@ -379,9 +372,8 @@ export const CanvasArea: React.FC<CanvasAreaProps> = React.memo(({
           </div>
         )}
 
-        {/* Elements Stack */}
+        {/* Elements Stack (strictly ordered so touching an element never hides items above it) */}
         {project.elements.map((el) => {
-          const isSelected = el.id === selectedId;
           const isEditing = el.id === editingTextId;
           const cssBlendMode =
             el.blendMode && el.blendMode !== 'source-over' ? el.blendMode : undefined;
@@ -396,9 +388,9 @@ export const CanvasArea: React.FC<CanvasAreaProps> = React.memo(({
               onPointerDown={(e) => handlePointerDown(e, 'move', el)}
               className={`absolute group touch-none ${
                 dragMode ? '' : 'transition-shadow'
-              } ${
-                isSelected ? 'ring-2 ring-amber-400 z-40' : 'hover:ring-1 hover:ring-amber-400/50'
-              } ${el.isLocked ? 'cursor-not-allowed' : 'cursor-move'}`}
+              } hover:ring-1 hover:ring-amber-400/50 ${
+                el.isLocked ? 'cursor-not-allowed' : 'cursor-move'
+              }`}
               style={{
                 left: el.x,
                 top: el.y,
@@ -442,49 +434,6 @@ export const CanvasArea: React.FC<CanvasAreaProps> = React.memo(({
 
               {el.type === 'chart' && <RenderChartElement element={el as ChartElement} />}
               </div>
-
-              {/* Selection Bounding Box & Transform Handles */}
-              {isSelected && !el.isLocked && (
-                <>
-                  {/* Rotation handle */}
-                  <div
-                    onPointerDown={(e) => handlePointerDown(e, 'rotate', el)}
-                    className="absolute -top-8 md:-top-7 left-1/2 -translate-x-1/2 w-5 h-5 md:w-4 md:h-4 bg-amber-400 border-2 border-black rounded-full cursor-grab active:cursor-grabbing flex items-center justify-center shadow touch-none"
-                    title="Zungusha (Rotate)"
-                  >
-                    <div className="w-1 h-1 bg-black rounded-full" />
-                  </div>
-                  <div className="absolute -top-3 left-1/2 w-0.5 h-3 bg-amber-400 -translate-x-1/2 pointer-events-none" />
-
-                  {/* Corner Resize Handles */}
-                  <div
-                    onPointerDown={(e) => handlePointerDown(e, 'nw', el)}
-                    className="absolute -top-2 -left-2 md:-top-1.5 md:-left-1.5 w-4 h-4 md:w-3 md:h-3 bg-white border border-amber-500 rounded-sm cursor-nwse-resize shadow-sm touch-none"
-                  />
-                  <div
-                    onPointerDown={(e) => handlePointerDown(e, 'ne', el)}
-                    className="absolute -top-2 -right-2 md:-top-1.5 md:-right-1.5 w-4 h-4 md:w-3 md:h-3 bg-white border border-amber-500 rounded-sm cursor-nesw-resize shadow-sm touch-none"
-                  />
-                  <div
-                    onPointerDown={(e) => handlePointerDown(e, 'se', el)}
-                    className="absolute -bottom-2 -right-2 md:-bottom-1.5 md:-right-1.5 w-4 h-4 md:w-3 md:h-3 bg-white border border-amber-500 rounded-sm cursor-nwse-resize shadow-sm touch-none"
-                  />
-                  <div
-                    onPointerDown={(e) => handlePointerDown(e, 'sw', el)}
-                    className="absolute -bottom-2 -left-2 md:-bottom-1.5 md:-left-1.5 w-4 h-4 md:w-3 md:h-3 bg-white border border-amber-500 rounded-sm cursor-nesw-resize shadow-sm touch-none"
-                  />
-
-                  {/* Edge Resize Handles */}
-                  <div
-                    onPointerDown={(e) => handlePointerDown(e, 'e', el)}
-                    className="absolute top-1/2 -right-2 md:-right-1.5 -translate-y-1/2 w-3 h-4 md:w-2.5 md:h-3 bg-white border border-amber-500 rounded-sm cursor-ew-resize shadow-sm touch-none"
-                  />
-                  <div
-                    onPointerDown={(e) => handlePointerDown(e, 's', el)}
-                    className="absolute -bottom-2 md:-bottom-1.5 left-1/2 -translate-x-1/2 w-4 h-3 md:w-3 md:h-2.5 bg-white border border-amber-500 rounded-sm cursor-ns-resize shadow-sm touch-none"
-                  />
-                </>
-              )}
             </div>
           );
         })}
@@ -497,129 +446,66 @@ export const CanvasArea: React.FC<CanvasAreaProps> = React.memo(({
             height={project.height}
           />
         )}
+        {/* Selection Outline & Transform Handles Overlay (Preserves True Element Stack Order) */}
+        {selectedElement && (
+          <div
+            className={`absolute pointer-events-none z-40 ${
+              selectedElement.isLocked
+                ? 'ring-2 ring-amber-400/60 border border-dashed border-amber-300/70'
+                : 'ring-2 ring-amber-400'
+            }`}
+            style={{
+              left: selectedElement.x,
+              top: selectedElement.y,
+              width: selectedElement.width,
+              height: selectedElement.height,
+              transform: `rotate(${selectedElement.rotation || 0}deg)`
+            }}
+          >
+            {!selectedElement.isLocked && editingTextId !== selectedElement.id && (
+              <>
+                {/* Rotation handle */}
+                <div
+                  onPointerDown={(e) => handlePointerDown(e, 'rotate', selectedElement)}
+                  className="pointer-events-auto absolute -top-8 md:-top-7 left-1/2 -translate-x-1/2 w-5 h-5 md:w-4 md:h-4 bg-amber-400 border-2 border-black rounded-full cursor-grab active:cursor-grabbing flex items-center justify-center shadow touch-none"
+                  title="Zungusha (Rotate)"
+                >
+                  <div className="w-1 h-1 bg-black rounded-full" />
+                </div>
+                <div className="absolute -top-3 left-1/2 w-0.5 h-3 bg-amber-400 -translate-x-1/2 pointer-events-none" />
+
+                {/* Corner Resize Handles */}
+                <div
+                  onPointerDown={(e) => handlePointerDown(e, 'nw', selectedElement)}
+                  className="pointer-events-auto absolute -top-2 -left-2 md:-top-1.5 md:-left-1.5 w-4 h-4 md:w-3 md:h-3 bg-white border border-amber-500 rounded-sm cursor-nwse-resize shadow-sm touch-none"
+                />
+                <div
+                  onPointerDown={(e) => handlePointerDown(e, 'ne', selectedElement)}
+                  className="pointer-events-auto absolute -top-2 -right-2 md:-top-1.5 md:-right-1.5 w-4 h-4 md:w-3 md:h-3 bg-white border border-amber-500 rounded-sm cursor-nesw-resize shadow-sm touch-none"
+                />
+                <div
+                  onPointerDown={(e) => handlePointerDown(e, 'se', selectedElement)}
+                  className="pointer-events-auto absolute -bottom-2 -right-2 md:-bottom-1.5 md:-right-1.5 w-4 h-4 md:w-3 md:h-3 bg-white border border-amber-500 rounded-sm cursor-nwse-resize shadow-sm touch-none"
+                />
+                <div
+                  onPointerDown={(e) => handlePointerDown(e, 'sw', selectedElement)}
+                  className="pointer-events-auto absolute -bottom-2 -left-2 md:-bottom-1.5 md:-left-1.5 w-4 h-4 md:w-3 md:h-3 bg-white border border-amber-500 rounded-sm cursor-nesw-resize shadow-sm touch-none"
+                />
+
+                {/* Edge Resize Handles */}
+                <div
+                  onPointerDown={(e) => handlePointerDown(e, 'e', selectedElement)}
+                  className="pointer-events-auto absolute top-1/2 -right-2 md:-right-1.5 -translate-y-1/2 w-3 h-4 md:w-2.5 md:h-3 bg-white border border-amber-500 rounded-sm cursor-ew-resize shadow-sm touch-none"
+                />
+                <div
+                  onPointerDown={(e) => handlePointerDown(e, 's', selectedElement)}
+                  className="pointer-events-auto absolute -bottom-2 md:-bottom-1.5 left-1/2 -translate-x-1/2 w-4 h-3 md:w-3 md:h-2.5 bg-white border border-amber-500 rounded-sm cursor-ns-resize shadow-sm touch-none"
+                />
+              </>
+            )}
+          </div>
+        )}
         </div>
-
-        {/* Crisp Screen-Space Floating Action Bar on Selected Element */}
-        {selectedElement && editingTextId !== selectedElement.id && !dragMode && (() => {
-          const stageW = project.width * zoom;
-          const stageH = project.height * zoom;
-          const selLeft = selectedElement.x * zoom;
-          const selTop = selectedElement.y * zoom;
-          const selRight = (selectedElement.x + selectedElement.width) * zoom;
-          const selBottom = (selectedElement.y + selectedElement.height) * zoom;
-          const centerX = Math.max(92, Math.min(stageW - 92, (selLeft + selRight) / 2));
-          const placeBelow = selTop < 58;
-          const rawTop = placeBelow ? selBottom + 12 : selTop - 52;
-          const pillTop = Math.max(8, Math.min(stageH - 42, rawTop));
-
-          return (
-            <div
-              onPointerDown={(e) => e.stopPropagation()}
-              onClick={(e) => e.stopPropagation()}
-              style={{ left: centerX, top: pillTop }}
-              className="absolute -translate-x-1/2 z-40 flex items-center gap-1 bg-neutral-900/95 backdrop-blur-md border border-neutral-700/90 rounded-full px-1.5 py-1 shadow-[0_8px_24px_rgba(0,0,0,0.65)] max-w-[92vw] overflow-x-auto scrollbar-none"
-            >
-              {selectedElement.type === 'text' && !selectedElement.isLocked && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => setEditingTextId(selectedElement.id)}
-                    className="px-2 py-1 rounded-full bg-amber-400 hover:bg-amber-300 text-black font-bold text-[11px] flex items-center gap-1 cursor-pointer transition-colors whitespace-nowrap"
-                    title="Hariri maandishi"
-                  >
-                    <Edit3 className="w-3 h-3" />
-                    <span>Andika</span>
-                  </button>
-
-                  <div className="flex items-center bg-neutral-800 border border-neutral-700 rounded-full px-0.5">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const el = selectedElement as TextElement;
-                        const cur = el.fontSize || 32;
-                        const next = Math.max(8, cur > 68 ? cur - 8 : cur > 30 ? cur - 4 : cur - 2);
-                        onUpdateElement({ fontSize: next });
-                      }}
-                      className="px-1.5 py-0.5 rounded-full hover:bg-neutral-700 text-neutral-200 font-bold text-[11px] cursor-pointer"
-                      title="Punguza ukubwa wa maandishi"
-                    >
-                      A-
-                    </button>
-                    <span className="px-1 text-[10px] font-mono font-bold text-amber-300 tabular-nums">
-                      {(selectedElement as TextElement).fontSize || 32}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const el = selectedElement as TextElement;
-                        const oldSize = Math.max(8, el.fontSize || 32);
-                        const next = Math.min(220, oldSize >= 64 ? oldSize + 8 : oldSize >= 28 ? oldSize + 4 : oldSize + 2);
-                        const scaledH = Math.round(el.height * (next / oldSize));
-                        const minH = Math.round(next * (el.lineHeight || 1.2) + 12);
-                        onUpdateElement({
-                          fontSize: next,
-                          height: Math.min(project.height, Math.max(el.height, scaledH, minH))
-                        });
-                      }}
-                      className="px-1.5 py-0.5 rounded-full hover:bg-neutral-700 text-amber-300 font-bold text-[11px] cursor-pointer"
-                      title="Ongeza ukubwa wa maandishi"
-                    >
-                      A+
-                    </button>
-                  </div>
-                </>
-              )}
-
-              {onToggleLockElement && selectedElement.isLocked && (
-                <button
-                  type="button"
-                  onClick={() => onToggleLockElement(selectedElement.id)}
-                  className="px-2 py-1 rounded-full bg-amber-400/20 hover:bg-amber-400/30 text-amber-300 font-bold text-[11px] flex items-center gap-1 cursor-pointer transition-colors whitespace-nowrap"
-                  title="Fungua kipengele kilichofungwa"
-                >
-                  <Lock className="w-3 h-3" />
-                  <span>Fungua</span>
-                </button>
-              )}
-
-              {onDuplicateElement && (
-                <button
-                  type="button"
-                  onClick={() => onDuplicateElement(selectedElement.id)}
-                  className="px-2 py-1 rounded-full bg-neutral-800 hover:bg-neutral-700 text-neutral-100 font-semibold text-[11px] flex items-center gap-1 cursor-pointer transition-colors whitespace-nowrap"
-                  title="Nakili kipengele hiki"
-                >
-                  <Copy className="w-3 h-3 text-sky-400" />
-                  <span className="hidden sm:inline">Nakili</span>
-                </button>
-              )}
-
-              {onToggleLockElement && !selectedElement.isLocked && (
-                <button
-                  type="button"
-                  onClick={() => onToggleLockElement(selectedElement.id)}
-                  className="p-1.5 rounded-full bg-neutral-800 hover:bg-neutral-700 text-neutral-300 hover:text-amber-300 cursor-pointer transition-colors"
-                  title="Funga kipengele (Lock)"
-                >
-                  <Unlock className="w-3 h-3" />
-                </button>
-              )}
-
-              {onDeleteElement && (
-                <button
-                  type="button"
-                  onClick={() => onDeleteElement(selectedElement.id)}
-                  className="px-2.5 py-1 rounded-full bg-red-600 hover:bg-red-500 text-white font-extrabold text-[11px] flex items-center gap-1 cursor-pointer transition-colors shadow-sm whitespace-nowrap"
-                  title="Futa kipengele hiki"
-                  aria-label="Futa kipengele"
-                >
-                  <Trash2 className="w-3 h-3" />
-                  <span>Futa</span>
-                </button>
-              )}
-            </div>
-          );
-        })()}
 
         {/* Empty Canvas Quick-Start Studio Overlay (never affects export) */}
         {project.elements.length === 0 && onQuickStartAction && (

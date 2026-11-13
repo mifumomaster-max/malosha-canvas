@@ -278,86 +278,88 @@ export const PropertyToolbar: React.FC<PropertyToolbarProps> = React.memo(({
 
   return (
     <>
-      {/* MOBILE CONTEXTUAL QUICK BAR (Fits 100% inside mobile screen, zero cutoff) */}
-      <div className="flex md:hidden items-center justify-between gap-1.5 px-2.5 py-1.5 bg-neutral-900 border-b border-neutral-800 text-xs text-neutral-200 z-20 shrink-0 w-full">
-        <div className="flex items-center gap-1 min-w-0 overflow-x-auto scrollbar-none">
-          {selectedElement.type === 'text' && onRequestEditText && (
-            <button
-              onClick={() => onRequestEditText(selectedElement.id)}
-              className="min-h-[34px] px-2 py-1 bg-amber-400 hover:bg-amber-300 text-black font-bold rounded-lg text-[11px] flex items-center gap-1 cursor-pointer shrink-0"
-            >
-              <Edit3 className="w-3.5 h-3.5" />
-              <span>Andika</span>
-            </button>
-          )}
-          {selectedElement.type === 'text' && (
-            <div className="min-h-[34px] flex items-center bg-neutral-800 border border-neutral-700 rounded-lg px-0.5 shrink-0">
+      {/* MOBILE CONTEXTUAL QUICK BAR (Fits 100% inside top bar, clear Nakili & Futa labels) */}
+      <div className="flex md:hidden flex-col gap-1.5 px-2.5 py-1.5 bg-neutral-900 border-b border-neutral-800 text-xs text-neutral-200 z-20 shrink-0 w-full">
+        <div className="flex items-center justify-between gap-1.5 w-full">
+          <div className="flex items-center gap-1 min-w-0 overflow-x-auto scrollbar-none">
+            {selectedElement.type === 'text' && onRequestEditText && (
               <button
-                type="button"
-                onClick={() => stepTextSize(-1)}
-                className="w-7 h-7 flex items-center justify-center text-[11px] font-bold text-neutral-200 hover:bg-neutral-700 rounded cursor-pointer"
-                title="Punguza ukubwa wa maandishi"
+                onClick={() => onRequestEditText(selectedElement.id)}
+                className="min-h-[32px] px-2 py-1 bg-amber-400 hover:bg-amber-300 text-black font-bold rounded-lg text-[11px] flex items-center gap-1 cursor-pointer shrink-0"
               >
-                A-
+                <Edit3 className="w-3.5 h-3.5" />
+                <span>Andika</span>
               </button>
-              <select
-                value={
-                  TEXT_SIZE_PRESETS.some(
+            )}
+            {selectedElement.type === 'text' && (
+              <div className="min-h-[32px] flex items-center bg-neutral-800 border border-neutral-700 rounded-lg px-0.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => stepTextSize(-1)}
+                  className="w-7 h-7 flex items-center justify-center text-[11px] font-bold text-neutral-200 hover:bg-neutral-700 rounded cursor-pointer"
+                  title="Punguza ukubwa wa maandishi"
+                >
+                  A-
+                </button>
+                <select
+                  value={
+                    TEXT_SIZE_PRESETS.some(
+                      (p) => p.size === ((selectedElement as TextElement).fontSize || 32)
+                    )
+                      ? (selectedElement as TextElement).fontSize || 32
+                      : 'custom'
+                  }
+                  onChange={(e) => {
+                    const val = Number(e.target.value);
+                    if (!Number.isNaN(val) && val > 0) updateTextSize(val, true);
+                  }}
+                  className="bg-transparent text-amber-300 font-mono text-[11px] font-bold px-1 py-1 focus:outline-none cursor-pointer max-w-[64px]"
+                  title="Chagua ukubwa wa maandishi"
+                >
+                  {!TEXT_SIZE_PRESETS.some(
                     (p) => p.size === ((selectedElement as TextElement).fontSize || 32)
-                  )
-                    ? (selectedElement as TextElement).fontSize || 32
-                    : 'custom'
-                }
-                onChange={(e) => {
-                  const val = Number(e.target.value);
-                  if (!Number.isNaN(val) && val > 0) updateTextSize(val, true);
-                }}
-                className="bg-transparent text-amber-300 font-mono text-[11px] font-bold px-1 py-1 focus:outline-none cursor-pointer max-w-[64px]"
-                title="Chagua ukubwa wa maandishi"
-              >
-                {!TEXT_SIZE_PRESETS.some(
-                  (p) => p.size === ((selectedElement as TextElement).fontSize || 32)
-                ) && (
-                  <option value="custom" className="bg-neutral-900 text-white">
-                    {(selectedElement as TextElement).fontSize || 32}px
-                  </option>
-                )}
-                {TEXT_SIZE_PRESETS.map((p) => (
-                  <option key={p.size} value={p.size} className="bg-neutral-900 text-white">
-                    {p.label}
-                  </option>
-                ))}
-              </select>
+                  ) && (
+                    <option value="custom" className="bg-neutral-900 text-white">
+                      {(selectedElement as TextElement).fontSize || 32}px
+                    </option>
+                  )}
+                  {TEXT_SIZE_PRESETS.map((p) => (
+                    <option key={p.size} value={p.size} className="bg-neutral-900 text-white">
+                      {p.label}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => stepTextSize(1)}
+                  className="w-7 h-7 flex items-center justify-center text-[11px] font-bold text-amber-300 hover:bg-neutral-700 rounded cursor-pointer"
+                  title="Ongeza ukubwa wa maandishi"
+                >
+                  A+
+                </button>
+              </div>
+            )}
+            {selectedElement.type === 'chart' && onOpenChartModal && (
               <button
-                type="button"
-                onClick={() => stepTextSize(1)}
-                className="w-7 h-7 flex items-center justify-center text-[11px] font-bold text-amber-300 hover:bg-neutral-700 rounded cursor-pointer"
-                title="Ongeza ukubwa wa maandishi"
+                onClick={onOpenChartModal}
+                className="min-h-[32px] px-2.5 py-1 bg-amber-400 hover:bg-amber-300 text-black font-bold rounded-lg text-[11px] flex items-center gap-1 cursor-pointer shrink-0"
               >
-                A+
+                <Edit3 className="w-3.5 h-3.5" />
+                <span>Takwimu</span>
               </button>
-            </div>
-          )}
-          {selectedElement.type === 'chart' && onOpenChartModal && (
-            <button
-              onClick={onOpenChartModal}
-              className="min-h-[34px] px-2.5 py-1 bg-amber-400 hover:bg-amber-300 text-black font-bold rounded-lg text-[11px] flex items-center gap-1 cursor-pointer shrink-0"
-            >
-              <Edit3 className="w-3.5 h-3.5" />
-              <span>Takwimu</span>
-            </button>
-          )}
-          {(selectedElement.type === 'image' || selectedElement.type === 'shape') && (
-            <label className="min-h-[34px] px-2.5 py-1 bg-amber-400 hover:bg-amber-300 text-black font-bold rounded-lg text-[11px] flex items-center gap-1 cursor-pointer shrink-0">
-              <Upload className="w-3.5 h-3.5" />
-              <span>{selectedElement.type === 'image' ? 'Badili Picha' : 'Weka Picha'}</span>
-              <input type="file" accept="image/*" onChange={handleElementPhotoUpload} className="hidden" />
-            </label>
-          )}
+            )}
+            {(selectedElement.type === 'image' || selectedElement.type === 'shape') && (
+              <label className="min-h-[32px] px-2.5 py-1 bg-amber-400 hover:bg-amber-300 text-black font-bold rounded-lg text-[11px] flex items-center gap-1 cursor-pointer shrink-0">
+                <Upload className="w-3.5 h-3.5" />
+                <span>{selectedElement.type === 'image' ? 'Badili Picha' : 'Weka Picha'}</span>
+                <input type="file" accept="image/*" onChange={handleElementPhotoUpload} className="hidden" />
+              </label>
+            )}
+          </div>
 
           <button
             onClick={() => setMobileInspectorOpen((prev) => !prev)}
-            className={`min-h-[34px] px-2.5 py-1 rounded-lg border text-[11px] font-semibold flex items-center gap-1.5 cursor-pointer transition-colors shrink-0 ${
+            className={`min-h-[32px] px-2.5 py-1 rounded-lg border text-[11px] font-semibold flex items-center gap-1.5 cursor-pointer transition-colors shrink-0 ${
               mobileInspectorOpen
                 ? 'bg-amber-400 text-black border-amber-400 font-bold'
                 : 'bg-neutral-800 text-neutral-100 border-neutral-700'
@@ -368,28 +370,35 @@ export const PropertyToolbar: React.FC<PropertyToolbarProps> = React.memo(({
           </button>
         </div>
 
-        <div className="flex items-center gap-1 shrink-0">
+        {/* Row 2: Top System Action Bar (Funga, Nakili / Copy, Futa) */}
+        <div className="flex items-center justify-between gap-1.5 pt-1 border-t border-neutral-800/80 w-full">
           <button
+            type="button"
             onClick={() => onUpdateElement({ isLocked: !isLocked })}
-            className={`min-h-[34px] min-w-[34px] flex items-center justify-center rounded-lg border cursor-pointer ${
+            className={`flex-1 min-h-[30px] px-2 py-1 flex items-center justify-center gap-1.5 rounded-lg border font-semibold text-[11px] cursor-pointer transition-colors ${
               isLocked
-                ? 'bg-amber-400 text-black border-amber-400'
-                : 'bg-neutral-800 border-neutral-700 text-neutral-300'
+                ? 'bg-amber-400 text-black border-amber-400 font-bold'
+                : 'bg-neutral-800 border-neutral-700 text-neutral-200 hover:bg-neutral-700'
             }`}
             aria-label={isLocked ? 'Fungua' : 'Funga'}
           >
             {isLocked ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
+            <span>{isLocked ? 'Fungua' : 'Funga'}</span>
           </button>
           <button
+            type="button"
             onClick={() => onDuplicateElement(selectedElement.id)}
-            className="min-h-[34px] min-w-[34px] flex items-center justify-center rounded-lg bg-neutral-800 border border-neutral-700 text-neutral-200 cursor-pointer"
-            aria-label="Nakili"
+            className="flex-1 min-h-[30px] px-2 py-1 flex items-center justify-center gap-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 text-neutral-100 font-semibold text-[11px] cursor-pointer transition-colors"
+            aria-label="Nakili (Copy)"
+            title="Nakili kipengele (Copy)"
           >
-            <Copy className="w-3.5 h-3.5" />
+            <Copy className="w-3.5 h-3.5 text-sky-400" />
+            <span>Nakili (Copy)</span>
           </button>
           <button
+            type="button"
             onClick={() => onDeleteElement(selectedElement.id)}
-            className="min-h-[34px] px-2.5 py-1 flex items-center justify-center gap-1 rounded-lg bg-red-500/20 hover:bg-red-600 border border-red-500/50 text-red-200 font-bold text-[11px] cursor-pointer transition-colors"
+            className="flex-1 min-h-[30px] px-2 py-1 flex items-center justify-center gap-1.5 rounded-lg bg-red-600/20 hover:bg-red-600 border border-red-500/50 text-red-200 hover:text-white font-bold text-[11px] cursor-pointer transition-colors"
             aria-label="Futa"
             title="Futa kipengele hiki"
           >
@@ -1885,23 +1894,25 @@ export const PropertyToolbar: React.FC<PropertyToolbarProps> = React.memo(({
           {/* Lock / Unlock */}
           <button
             onClick={() => onUpdateElement({ isLocked: !isLocked })}
-            className={`p-1.5 rounded border transition-colors cursor-pointer ${
+            className={`px-2 py-1 flex items-center gap-1 rounded border text-[11px] font-semibold transition-colors cursor-pointer ${
               isLocked
                 ? 'bg-amber-400 text-black border-amber-400'
-                : 'border-neutral-700 text-neutral-400 hover:bg-neutral-800 hover:text-white'
+                : 'border-neutral-700 bg-neutral-800/80 text-neutral-300 hover:bg-neutral-700 hover:text-white'
             }`}
             title={isLocked ? 'Fungua Kipengele (Unlock)' : 'Funga Kisisonge (Lock)'}
           >
             {isLocked ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
+            <span>{isLocked ? 'Fungua' : 'Funga'}</span>
           </button>
 
           {/* Duplicate */}
           <button
             onClick={() => onDuplicateElement(selectedElement.id)}
-            className="p-1.5 rounded border border-neutral-700 text-neutral-400 hover:bg-neutral-800 hover:text-white transition-colors cursor-pointer"
-            title="Nakili (Duplicate)"
+            className="px-2 py-1 flex items-center gap-1 rounded border border-neutral-700 bg-neutral-800/80 text-neutral-200 hover:bg-neutral-700 hover:text-white font-semibold text-[11px] transition-colors cursor-pointer"
+            title="Nakili kipengele hiki (Copy)"
           >
-            <Copy className="w-3.5 h-3.5" />
+            <Copy className="w-3.5 h-3.5 text-sky-400" />
+            <span>Nakili</span>
           </button>
 
           {/* Delete */}
